@@ -2,6 +2,7 @@
 Auto Attacker - Automated continuous attack system for COC
 """
 
+import os
 import time
 import random
 import threading
@@ -16,6 +17,10 @@ from .coordinate_mapper import CoordinateMapper
 from .ai_analyzer import AIAnalyzer
 from ..utils.logger import Logger
 from ..utils.config import Config
+
+# Path to battle-end template image (e.g. the "Return Home" button that appears when a battle ends)
+_BATTLE_END_TEMPLATE = os.path.join("templates", "battle_end.png")
+
 
 class AutoAttacker:
     """Automated continuous attack system"""
@@ -42,6 +47,9 @@ class AutoAttacker:
         self.attack_sessions = self.config.get('auto_attacker.attack_sessions', [])
         self.max_search_attempts = self.config.get('auto_attacker.max_search_attempts', 10)
         self.current_session_index = 0
+        
+        # Cached coordinates (invalidated on each attack cycle)
+        self._cached_coords = None
         
         print("Auto Attacker initialized")
         print("Emergency stop: Ctrl+Alt+S")
@@ -103,6 +111,12 @@ class AutoAttacker:
         
         self.logger.info("Auto attacker stopped")
     
+    def _get_coords(self) -> Dict:
+        """Return cached coordinates, refreshing once per attack cycle."""
+        if self._cached_coords is None:
+            self._cached_coords = self.coordinate_mapper.get_coordinates()
+        return self._cached_coords
+
     def _auto_attack_loop(self) -> None:
         """Main automation loop"""
         try:
@@ -111,6 +125,9 @@ class AutoAttacker:
                 if keyboard.is_pressed('ctrl+alt+s'):
                     self.logger.warning("Emergency stop activated!")
                     break
+                
+                # Refresh coordinate cache at start of each cycle
+                self._cached_coords = None
                 
                 self.logger.info("🎯 Starting new attack cycle...")
                 
@@ -139,7 +156,7 @@ class AutoAttacker:
     def _execute_attack_sequence(self) -> bool:
         """Execute the complete attack sequence following your exact process"""
         try:
-            coords = self.coordinate_mapper.get_coordinates()
+            coords = self._get_coords()
             
             # Step 1: Click attack button
             if 'attack' not in coords:
@@ -160,21 +177,14 @@ class AutoAttacker:
             session_name = self._get_next_attack_session()
             self.logger.info(f"🎯 Starting attack with session: {session_name}")
             
-            if not self.attack_player.play_attack(session_name, speed=1.0):
+            if not self.attack_player.play_attack(session_name, speed=1.0, auto_mode=True):
                 self.logger.error("Failed to start attack recording")
                 return False
             
             self.logger.info("✅ Attack recording started - troops deploying...")
             
-            # Step 8: Wait 3 minutes for battle completion
-            self.logger.info("⏳ Waiting 3 minutes for battle completion...")
-            battle_wait_time = 180  # 3 minutes
-            
-            for remaining in range(battle_wait_time, 0, -10):
-                if not self.is_running:
-                    break
-                self.logger.info(f"⏳ Battle in progress... {remaining//60}m {remaining%60}s remaining")
-                time.sleep(10)
+            # Step 8: Wait for battle completion (detect end instead of fixed 3 min)
+            self._wait_for_battle_end()
             
             # Step 9: Return home
             self._return_home()
@@ -185,9 +195,53 @@ class AutoAttacker:
             self.logger.error(f"Attack sequence failed: {e}")
             return False
     
+    def _wait_for_battle_end(self) -> None:
+        """Wait for battle to end by checking for the battle-end indicator.
+        
+        If a battle_end template image exists, polls for it every 5 seconds
+        so the bot can proceed as soon as the battle finishes instead of
+        always waiting the full 3 minutes.  Falls back to a fixed 180 s
+        wait when the template is not available.
+        """
+        battle_timeout = 180  # 3 minutes max
+        poll_interval = 5     # seconds between checks
+
+        has_template = os.path.exists(_BATTLE_END_TEMPLATE)
+
+        if has_template:
+            self.logger.info("⏳ Waiting for battle to end (polling for end indicator)...")
+            elapsed = 0
+            while elapsed < battle_timeout and self.is_running:
+                # Check if battle-end indicator is visible on screen
+                match = self.screen_capture.find_template_on_screen(
+                    _BATTLE_END_TEMPLATE, threshold=0.8
+                )
+                if match:
+                    self.logger.info(f"🏁 Battle ended after ~{elapsed}s (end indicator detected)")
+                    return
+                remaining = battle_timeout - elapsed
+                self.logger.info(
+                    f"⏳ Battle in progress... ~{remaining // 60}m {remaining % 60}s remaining"
+                )
+                time.sleep(poll_interval)
+                elapsed += poll_interval
+            self.logger.info("⏳ Battle timeout reached (180s)")
+        else:
+            self.logger.info(
+                "⏳ Waiting 3 minutes for battle completion "
+                f"(place a template at '{_BATTLE_END_TEMPLATE}' for early detection)..."
+            )
+            for remaining in range(battle_timeout, 0, -10):
+                if not self.is_running:
+                    break
+                self.logger.info(
+                    f"⏳ Battle in progress... {remaining // 60}m {remaining % 60}s remaining"
+                )
+                time.sleep(10)
+
     def _click_attack_confirm_button(self) -> bool:
         """Click the green attack confirm button that appears after find_a_match (new CoC update)"""
-        coords = self.coordinate_mapper.get_coordinates()
+        coords = self._get_coords()
         
         if 'attack_confirm_button' not in coords:
             self.logger.error("attack_confirm_button not mapped - this button is required since the latest CoC update")
@@ -201,103 +255,43 @@ class AutoAttacker:
 
     def _find_good_loot_target(self) -> bool:
         """Find target with good loot following exact process"""
-        coords = self.coordinate_mapper.get_coordinates()
+        coords = self._get_coords()
         
-        if 'find_a_match' not in coords:
-            self.logger.error("find_a_match button not mapped")
-            return False
-        
-        if 'attack_confirm_button' not in coords:
-            self.logger.error("attack_confirm_button not mapped - required since latest CoC update")
-            return False
-        
-        if 'next_button' not in coords:
-            self.logger.error("next_button not mapped")
-            return False
-        
-        search_attempts = 0
-        max_attempts = self.max_search_attempts
-        
-        while search_attempts < max_attempts and self.is_running:
-            search_attempts += 1
-            
-            # Step 2: Click find_a_match
-            find_coord = coords['find_a_match']
-            self.logger.info(f"2️⃣ Clicking find_a_match at ({find_coord['x']}, {find_coord['y']}) - Attempt {search_attempts}/{max_attempts}")
-            pyautogui.click(find_coord['x'], find_coord['y'])
-            time.sleep(2)  # Wait for confirm button to appear
-            
-            # Step 3: Click the green attack confirm button (new CoC update)
-            if not self._click_attack_confirm_button():
-                self.logger.error("Failed to click attack confirm button")
+        for required in ('find_a_match', 'attack_confirm_button', 'next_button'):
+            if required not in coords:
+                self.logger.error(f"{required} button not mapped")
                 return False
-            
-            # Step 4: Wait for base to load
-            self.logger.info("3️⃣ Waiting 5 seconds for base to load...")
-            time.sleep(5)
-            
-            # Step 5: Check loot
-            screenshot_path = self.screen_capture.capture_game_screen()
-            if not screenshot_path:
-                self.logger.warning("Could not take screenshot, skipping base...")
-                continue # Try again
+        
+        # Try up to two full search cycles (second cycle after clicking end button)
+        for cycle in range(2):
+            if cycle > 0:
+                self.logger.info("🔄 No good bases found - clicking end button to restart search...")
+                self._click_end_button_and_retry()
+                self.logger.info("🔄 Retrying base search after end button...")
 
-            use_ai = self.config.get('ai_analyzer.enabled', False)
-            self.logger.info(f"AI Analysis is {'ENABLED' if use_ai else 'DISABLED'}.")
-
-            decision_to_attack = False
-            if use_ai:
-                self.logger.info("4️⃣ Checking enemy loot with AI...")
-                decision_to_attack = self._check_loot_with_ai(screenshot_path)
-            else:
-                self.logger.info("4️⃣ Performing simple loot check (AI Disabled)...")
-                decision_to_attack = self._check_loot()
-
-            if decision_to_attack:
-                self.logger.info("✅ Base is good! Proceeding with attack!")
+            if self._search_bases_cycle(coords):
                 return True
-            else:
-                # Step 6: Bad loot or AI said SKIP, click next
-                self.logger.info("❌ Base not suitable. Clicking next...")
-                if 'next_button' in coords:
-                    next_coord = coords['next_button']
-                    pyautogui.click(next_coord['x'], next_coord['y'])
-                    time.sleep(3)  # Wait before next search
-                else:
-                    self.logger.error("next_button not mapped, cannot skip.")
-                    return False
         
-        self.logger.warning(f"Could not find good loot after {max_attempts} attempts")
+        return False
+
+    def _search_bases_cycle(self, coords: Dict) -> bool:
+        """Perform one complete cycle of base searching.
         
-        # Click end button and retry the entire search process
-        self.logger.info("🔄 No good bases found - clicking end button to restart search...")
-        self._click_end_button_and_retry()
-        
-        # Try one more complete search cycle
-        self.logger.info("🔄 Retrying base search after end button...")
-        return self._search_for_good_base_cycle()
-        
-    def _search_for_good_base_cycle(self) -> bool:
-        """Perform one complete cycle of base searching"""
-        coords = self.coordinate_mapper.get_coordinates()
-        
-        if 'find_a_match' not in coords or 'next_button' not in coords:
-            self.logger.error("Required buttons not mapped for base search")
-            return False
-        
-        if 'attack_confirm_button' not in coords:
-            self.logger.error("attack_confirm_button not mapped - required since latest CoC update")
-            return False
-        
-        search_attempts = 0
+        Extracted from the duplicated logic that was previously in both
+        ``_find_good_loot_target`` and ``_search_for_good_base_cycle``.
+        """
         max_attempts = self.max_search_attempts
         
-        while search_attempts < max_attempts and self.is_running:
-            search_attempts += 1
+        for attempt in range(1, max_attempts + 1):
+            if not self.is_running:
+                return False
             
             # Click find_a_match
             find_coord = coords['find_a_match']
-            self.logger.info(f"2️⃣ Clicking find_a_match at ({find_coord['x']}, {find_coord['y']}) - Attempt {search_attempts}/{max_attempts}")
+            self.logger.info(
+                f"2️⃣ Clicking find_a_match at ({find_coord['x']}, {find_coord['y']}) "
+                f"- Attempt {attempt}/{max_attempts}"
+            )
             pyautogui.click(find_coord['x'], find_coord['y'])
             time.sleep(2)  # Wait for confirm button to appear
             
@@ -307,7 +301,7 @@ class AutoAttacker:
                 return False
             
             # Wait for base to load
-            self.logger.info("3️⃣ Waiting 5 seconds for base to load...")
+            self.logger.info("3️⃣ Waiting for base to load...")
             time.sleep(5)
             
             # Check loot
@@ -330,13 +324,14 @@ class AutoAttacker:
             if decision_to_attack:
                 self.logger.info("✅ Base is good! Proceeding with attack!")
                 return True
-            else:
-                # Bad base, click next
-                self.logger.info("❌ Base not suitable. Clicking next...")
-                next_coord = coords['next_button']
-                pyautogui.click(next_coord['x'], next_coord['y'])
-                time.sleep(3)
+            
+            # Bad base, click next
+            self.logger.info("❌ Base not suitable. Clicking next...")
+            next_coord = coords['next_button']
+            pyautogui.click(next_coord['x'], next_coord['y'])
+            time.sleep(3)
         
+        self.logger.warning(f"Could not find good loot after {max_attempts} attempts")
         return False
     
     def _check_loot_with_ai(self, screenshot_path: str) -> bool:
@@ -380,7 +375,7 @@ class AutoAttacker:
 
     def _check_loot(self) -> bool:
         """Check if enemy base has good loot"""
-        coords = self.coordinate_mapper.get_coordinates()
+        coords = self._get_coords()
         
         # Check each loot type
         loot_checks = {
@@ -418,7 +413,7 @@ class AutoAttacker:
     
     def _click_end_button_and_retry(self) -> None:
         """Click end button when Town Hall is not detected and retry"""
-        coords = self.coordinate_mapper.get_coordinates()
+        coords = self._get_coords()
         
         if 'end_button' in coords:
             end_coord = coords['end_button']
@@ -430,7 +425,7 @@ class AutoAttacker:
     
     def _return_home(self) -> None:
         """Return to home base after battle"""
-        coords = self.coordinate_mapper.get_coordinates()
+        coords = self._get_coords()
         
         self.logger.info("🏠 Returning to home base...")
         

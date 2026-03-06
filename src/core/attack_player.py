@@ -26,7 +26,7 @@ class AttackPlayer:
         print("  F9 - Stop playback")
         print("  ESC - Emergency stop")
     
-    def play_attack(self, session_name: str, speed: float = 1.0) -> bool:
+    def play_attack(self, session_name: str, speed: float = 1.0, auto_mode: bool = False) -> bool:
         """Play back a recorded attack session"""
         if self.is_playing:
             print("Already playing an attack")
@@ -46,10 +46,13 @@ class AttackPlayer:
         print(f"Duration: {recording.get('duration', 0):.1f} seconds")
         print(f"Actions: {len(recording.get('actions', []))}")
         print(f"Speed: {speed}x")
-        print("\nStarting playback in 3 seconds...")
-        print("Press F8 to pause, F9 to stop, ESC for emergency stop")
         
-        time.sleep(3)
+        if not auto_mode:
+            print("\nStarting playback in 3 seconds...")
+            print("Press F8 to pause, F9 to stop, ESC for emergency stop")
+            time.sleep(3)
+        else:
+            print("\nStarting playback immediately (auto mode)...")
         
         # Start playback thread
         self.playback_thread = threading.Thread(

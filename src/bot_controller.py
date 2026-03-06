@@ -24,7 +24,8 @@ class BotController:
         self.attack_player = AttackPlayer(attack_recorder=self.attack_recorder)
         self.ai_analyzer = AIAnalyzer(
             api_key=self.config.get("ai_analyzer.google_gemini_api_key", ""),
-            logger=self.logger
+            logger=self.logger,
+            model=self.config.get("ai_analyzer.model", "")
         )
         self.auto_attacker = AutoAttacker(
             attack_player=self.attack_player, 

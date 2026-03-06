@@ -49,5 +49,4 @@ config.json
 # Temporary files
 *.tmp
 *.log
-*.bak 
-src/utils/config.py
+*.bak

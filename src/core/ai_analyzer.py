@@ -13,10 +13,26 @@ import io
 class AIAnalyzer:
     """Google Gemini AI analyzer for COC base evaluation"""
     
-    def __init__(self, api_key: str, logger):
+    _BASE_URL_TEMPLATE = (
+        "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    )
+    _DEFAULT_MODEL = "gemini-2.5-flash-lite"
+    _AVAILABLE_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"]
+
+    def _log_404_error(self) -> None:
+        """Log a helpful message when the API returns a 404 (deprecated model)."""
+        available = ", ".join(self._AVAILABLE_MODELS)
+        self.logger.error(
+            f"❌ Gemini API returned 404. The model '{self.model}' may be deprecated. "
+            f"Update 'ai_analyzer.model' in config.json. "
+            f"Available models: {available}"
+        )
+
+    def __init__(self, api_key: str, logger, model: str = ""):
         self.api_key = api_key
         self.logger = logger
-        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite-preview-06-17:generateContent"
+        self.model = model or self._DEFAULT_MODEL
+        self.base_url = self._BASE_URL_TEMPLATE.format(model=self.model)
         
         if not self.api_key:
             self.logger.warning(
@@ -205,6 +221,9 @@ Respond in this exact JSON format:
                 else:
                     self.logger.error("No candidates in Gemini response")
                     return None
+            elif response.status_code == 404:
+                self._log_404_error()
+                return None
             else:
                 self.logger.error(f"Gemini API error: {response.status_code} - {response.text}")
                 return None
@@ -243,6 +262,9 @@ Respond in this exact JSON format:
             if response.status_code == 200:
                 self.logger.info("✅ Gemini API connection successful")
                 return True
+            elif response.status_code == 404:
+                self._log_404_error()
+                return False
             else:
                 self.logger.error(f"❌ Gemini API test failed: {response.status_code}")
                 return False

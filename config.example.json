@@ -1,0 +1,27 @@
+{
+    "bot": {
+        "click_delay": 0.1,
+        "playback_speed": 1.0,
+        "failsafe": true
+    },
+    "hotkeys": {
+        "recording": {
+            "start_stop": "ctrl+alt+r",
+            "manual_click": "ctrl+alt+c"
+        }
+    },
+    "ai_analyzer": {
+        "enabled": false,
+        "google_gemini_api_key": "YOUR_GEMINI_API_KEY_HERE",
+        "model": "gemini-2.5-flash-lite",
+        "min_gold": 300000,
+        "min_elixir": 300000,
+        "min_dark_elixir": 2000
+    },
+    "auto_attacker": {
+        "attack_sessions": [],
+        "max_search_attempts": 10,
+        "battle_timeout": 180,
+        "max_th_level": 12
+    }
+}

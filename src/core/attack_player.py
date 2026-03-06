@@ -164,18 +164,60 @@ class AttackPlayer:
             self.is_playing = False
             print(f"\nPlayback completed")
     
+    def set_troop_bar_config(self, cfg: Dict) -> None:
+        """Update the troop bar configuration and reset the one-shot warning flag."""
+        self._troop_bar_config = cfg
+        self._config_warned = False
+
     def _get_troop_bar_bounds(self) -> Dict:
         """Get troop bar region bounds resolved against current screen size."""
         screen_width, screen_height = pyautogui.size()
         cfg = self._troop_bar_config
-        y_min_offset = cfg.get('y_min_offset', 120)
+
+        if cfg.get('calibrated', False):
+            # Use values saved by the calibration wizard
+            y_min_offset = cfg.get('y_min_offset', max(100, int(screen_height * 0.08)))
+            num_slots = cfg.get('num_slots', 8)
+            slot_width = cfg.get('slot_width', 70)
+            x_start = cfg.get('x_start', 0)
+            return {
+                'y_min': screen_height - y_min_offset,
+                'y_max': screen_height,
+                'x_start': x_start,
+                'slot_width': slot_width,
+                'num_slots': num_slots,
+            }
+
+        # Smart defaults based on screen resolution when not yet calibrated.
+        y_min_offset = cfg.get('y_min_offset', max(100, int(screen_height * 0.08)))
+        num_slots = cfg.get('num_slots', 8)
+        estimated_bar_width = max(1, int(screen_width * 0.45))
+        slot_width = cfg.get('slot_width', estimated_bar_width // max(num_slots, 1))
+        stored_x_start = cfg.get('x_start', 0)
+        x_start = stored_x_start if stored_x_start != 0 else (screen_width - estimated_bar_width) // 2
         return {
             'y_min': screen_height - y_min_offset,
             'y_max': screen_height,
-            'x_start': cfg.get('x_start', 0),
-            'slot_width': cfg.get('slot_width', 70),
-            'num_slots': cfg.get('num_slots', 8),
+            'x_start': x_start,
+            'slot_width': slot_width,
+            'num_slots': num_slots,
         }
+
+    def _validate_troop_bar_config(self) -> None:
+        """Warn once if the troop bar config looks wrong for the current screen resolution."""
+        if getattr(self, '_config_warned', False):
+            return
+        self._config_warned = True
+        bounds = self._get_troop_bar_bounds()
+        screen_width, _ = pyautogui.size()
+        total_bar_width = bounds['num_slots'] * bounds['slot_width']
+        if total_bar_width < screen_width * 0.1:
+            print("⚠️ WARNING: Troop bar config seems too narrow for your screen resolution!")
+            print(f"   Screen width: {screen_width}px, Troop bar width: {total_bar_width}px")
+            print("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.")
+        if bounds['x_start'] == 0 and screen_width > 1920:
+            print("⚠️ WARNING: Troop bar x_start is 0 — this is likely wrong for your resolution!")
+            print("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.")
 
     def _build_troop_slot_mapping(self, recording_actions: List[Dict]) -> Dict[int, int]:
         """
@@ -196,6 +238,7 @@ class AttackPlayer:
         if not troop_actions:
             return {}
 
+        self._validate_troop_bar_config()
         bounds = self._get_troop_bar_bounds()
         num_slots = bounds['num_slots']
         slot_width = bounds['slot_width']
@@ -203,12 +246,23 @@ class AttackPlayer:
         y_min = bounds['y_min']
         bar_height = bounds['y_max'] - y_min
 
+        print(f"🔍 Building troop slot mapping...")
+        print(f"   Troop bar region: x={x_start}, y={y_min}, width={num_slots * slot_width}, height={bar_height}")
+        print(f"   Number of slots: {num_slots}, slot width: {slot_width}px")
+        print(f"   Found {len(troop_actions)} unique troop_select action(s) with icons")
+
         try:
             # Capture the current troop bar
             bar_screenshot = pyautogui.screenshot(
                 region=(x_start, y_min, num_slots * slot_width, bar_height)
             )
             bar_img = cv2.cvtColor(np.array(bar_screenshot), cv2.COLOR_RGB2BGR)
+
+            # Save debug screenshot so the user can verify the captured region
+            os.makedirs("logs", exist_ok=True)
+            debug_path = os.path.join("logs", "debug_troop_bar.png")
+            bar_screenshot.save(debug_path)
+            print(f"   Debug: troop bar screenshot saved to {debug_path}")
         except Exception as e:
             print(f"⚠️ Could not capture troop bar for slot mapping: {e}")
             return {}
@@ -246,6 +300,15 @@ class AttackPlayer:
                         print(f"⚠️ Slot {new_slot} already claimed; keeping slot {original_slot} as-is")
             except Exception as e:
                 print(f"⚠️ Template matching failed for slot {original_slot}: {e}")
+
+        if not mapping:
+            print("⚠️ No troop slot remapping could be built!")
+            print("   Possible causes:")
+            print("   - Troop bar config doesn't match your screen (run 'Calibrate Troop Bar')")
+            print("   - Troop icons from recording don't match current troops")
+            print("   - opencv-python not installed")
+        else:
+            print(f"✅ Built {len(mapping)} slot remapping(s)")
 
         return mapping
 

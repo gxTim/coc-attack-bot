@@ -11,4 +11,7 @@ Pillow>=9.5.0
 numpy>=1.24.0
 
 # Additional utilities
-requests>=2.31.0 
+requests>=2.31.0
+
+# GUI (optional - falls back to console UI if not installed)
+customtkinter>=5.2.0 

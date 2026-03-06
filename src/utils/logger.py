@@ -5,13 +5,14 @@ Logger - Logging utility for the COC Attack Bot
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 
 class Logger:
     """Simple logging utility for the COC Attack Bot"""
     
     def __init__(self, log_file: Optional[str] = None):
         self.log_dir = "logs"
+        self._gui_callback: Optional[Callable[[str, str], None]] = None
         
         # Create logs directory
         os.makedirs(self.log_dir, exist_ok=True)
@@ -63,18 +64,26 @@ class Logger:
     def info(self, message: str) -> None:
         """Log info message"""
         self.logger.info(message)
+        if self._gui_callback:
+            self._gui_callback(message, "INFO")
     
     def warning(self, message: str) -> None:
         """Log warning message"""
         self.logger.warning(message)
+        if self._gui_callback:
+            self._gui_callback(message, "WARNING")
     
     def error(self, message: str) -> None:
         """Log error message"""
         self.logger.error(message)
+        if self._gui_callback:
+            self._gui_callback(message, "ERROR")
     
     def critical(self, message: str) -> None:
         """Log critical message"""
         self.logger.critical(message)
+        if self._gui_callback:
+            self._gui_callback(message, "CRITICAL")
     
     def log_action(self, action: str, details: str = "") -> None:
         """Log bot action"""
@@ -97,4 +106,13 @@ class Logger:
     
     def get_log_file_path(self) -> str:
         """Get the current log file path"""
-        return self.log_file 
+        return self.log_file
+    
+    def set_gui_callback(self, callback: Optional[Callable[[str, str], None]]) -> None:
+        """Set a callback for routing log messages to the GUI panel.
+        
+        The callback receives (message, level) where level is one of:
+        'INFO', 'WARNING', 'ERROR', 'CRITICAL'.
+        Pass None to remove the callback.
+        """
+        self._gui_callback = callback 

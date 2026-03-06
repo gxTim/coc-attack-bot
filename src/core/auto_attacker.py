@@ -3,6 +3,7 @@ Auto Attacker - Automated continuous attack system for COC
 """
 
 import os
+import json
 import time
 import random
 import threading
@@ -17,6 +18,7 @@ from .coordinate_mapper import CoordinateMapper
 from .ai_analyzer import AIAnalyzer
 from ..utils.logger import Logger
 from ..utils.config import Config
+from ..utils.humanizer import humanize_click, humanize_delay
 
 # Template images used for battle-end detection.
 # Place either or both in the `templates/` directory for early battle-end detection.
@@ -32,6 +34,9 @@ _PIXEL_COLOR_DIFF_THRESHOLD = 30
 # battle finished.  This prevents false positives caused by brief colour
 # changes that can occur at the very start of the battle.
 _MIN_BATTLE_ELAPSED_SECS = 30
+
+# Seconds in one hour — used for hourly attack rate limiting.
+_SECONDS_PER_HOUR = 3600
 
 
 class AutoAttacker:
@@ -54,7 +59,14 @@ class AutoAttacker:
             'successful_attacks': 0,
             'failed_attacks': 0,
             'start_time': None,
-            'last_attack_time': None
+            'last_attack_time': None,
+            'total_gold_farmed': 0,
+            'total_elixir_farmed': 0,
+            'total_dark_farmed': 0,
+            'best_attack_loot': 0,
+            'best_attack_number': 0,
+            'attacks_this_hour': 0,
+            'hour_start_time': None,
         }
         
         self.attack_sessions = self.config.get('auto_attacker.attack_sessions', [])
@@ -63,6 +75,8 @@ class AutoAttacker:
         
         # Cached coordinates (invalidated on each attack cycle)
         self._cached_coords = None
+        # Last AI analysis result — updated by _check_loot_with_ai when attack is recommended
+        self._last_ai_analysis: Optional[Dict] = None
         
         print("Auto Attacker initialized")
         print("Emergency stop: Ctrl+Alt+S")
@@ -101,6 +115,8 @@ class AutoAttacker:
         
         self.is_running = True
         self.stats['start_time'] = datetime.now()
+        self.stats['hour_start_time'] = datetime.now()
+        self.stats['attacks_this_hour'] = 0
         
         self.auto_thread = threading.Thread(target=self._auto_attack_loop)
         self.auto_thread.daemon = True
@@ -122,6 +138,8 @@ class AutoAttacker:
         if self.auto_thread and self.auto_thread.is_alive():
             self.auto_thread.join(timeout=5)
         
+        self._print_session_summary()
+        self._save_session_stats()
         self.logger.info("Auto attacker stopped")
     
     def _get_coords(self) -> Dict:
@@ -133,37 +151,119 @@ class AutoAttacker:
     def _auto_attack_loop(self) -> None:
         """Main automation loop"""
         try:
+            # Anti-ban config
+            anti_ban_enabled = self.config.get('anti_ban.enabled', True)
+            cooldown_min = self.config.get('anti_ban.cooldown_min', 10)
+            cooldown_max = self.config.get('anti_ban.cooldown_max', 45)
+            max_attacks_per_hour = self.config.get('anti_ban.max_attacks_per_hour', 20)
+            max_attacks_per_session = self.config.get('anti_ban.max_attacks_per_session', 100)
+            break_every_n = self.config.get('anti_ban.break_every_n_attacks', 10)
+            break_duration_min = self.config.get('anti_ban.break_duration_min', 120)
+            break_duration_max = self.config.get('anti_ban.break_duration_max', 300)
+
             while self.is_running:
                 # Check emergency stop
                 if keyboard.is_pressed('ctrl+alt+s'):
                     self.logger.warning("Emergency stop activated!")
                     break
-                
+
                 # Refresh coordinate cache at start of each cycle
                 self._cached_coords = None
-                
+
+                with self._stats_lock:
+                    total = self.stats['total_attacks']
+                    attacks_this_hour = self.stats['attacks_this_hour']
+                    hour_start = self.stats['hour_start_time']
+
+                # ── Anti-ban: session limit ──────────────────────────────────
+                if anti_ban_enabled and total >= max_attacks_per_session:
+                    self.logger.warning(
+                        f"🛑 Session attack limit reached ({max_attacks_per_session}). "
+                        f"Stopping auto-attack."
+                    )
+                    break
+
+                # ── Anti-ban: hourly limit ───────────────────────────────────
+                if anti_ban_enabled and hour_start is not None:
+                    elapsed_hour = (datetime.now() - hour_start).total_seconds()
+                    if elapsed_hour >= _SECONDS_PER_HOUR:
+                        # New hour — reset counter
+                        with self._stats_lock:
+                            self.stats['attacks_this_hour'] = 0
+                            self.stats['hour_start_time'] = datetime.now()
+                        attacks_this_hour = 0
+                    elif attacks_this_hour >= max_attacks_per_hour:
+                        wait_secs = int(_SECONDS_PER_HOUR - elapsed_hour)
+                        self.logger.warning(
+                            f"⏳ Hourly attack limit reached ({max_attacks_per_hour}/hr). "
+                            f"Pausing for {wait_secs // 60}m {wait_secs % 60}s..."
+                        )
+                        pause_end = time.time() + wait_secs
+                        while self.is_running and time.time() < pause_end:
+                            time.sleep(5)
+                        with self._stats_lock:
+                            self.stats['attacks_this_hour'] = 0
+                            self.stats['hour_start_time'] = datetime.now()
+
+                # ── Anti-ban: activity break ─────────────────────────────────
+                if anti_ban_enabled and total > 0 and break_every_n > 0 and total % break_every_n == 0:
+                    break_duration = random.uniform(break_duration_min, break_duration_max)
+                    self.logger.info(
+                        f"☕ Activity break every {break_every_n} attacks: "
+                        f"resting for {break_duration:.0f}s ({break_duration / 60:.1f} min)..."
+                    )
+                    break_end = time.time() + break_duration
+                    while self.is_running and time.time() < break_end:
+                        time.sleep(5)
+
                 self.logger.info("🎯 Starting new attack cycle...")
-                
+
                 # Execute attack sequence
+                self._last_ai_analysis = None
                 if self._execute_attack_sequence():
                     with self._stats_lock:
                         self.stats['successful_attacks'] += 1
+                        self.stats['attacks_this_hour'] += 1
+                        # Accumulate loot from AI analysis
+                        if self._last_ai_analysis:
+                            loot = self._last_ai_analysis.get('loot', {})
+                            gold = loot.get('gold', 0)
+                            elixir = loot.get('elixir', 0)
+                            dark = loot.get('dark_elixir', 0)
+                            self.stats['total_gold_farmed'] += gold
+                            self.stats['total_elixir_farmed'] += elixir
+                            self.stats['total_dark_farmed'] += dark
+                            total_loot = gold + elixir
+                            if total_loot > self.stats['best_attack_loot']:
+                                self.stats['best_attack_loot'] = total_loot
+                                self.stats['best_attack_number'] = self.stats['total_attacks'] + 1
                     self.logger.info("✅ Attack sequence completed successfully")
                 else:
                     with self._stats_lock:
                         self.stats['failed_attacks'] += 1
                     self.logger.warning("❌ Attack sequence failed")
-                
+
                 with self._stats_lock:
                     self.stats['total_attacks'] += 1
                     self.stats['last_attack_time'] = datetime.now()
-                
-                # Short break between attacks
+
+                # Print dashboard after each cycle
+                show_dashboard = self.config.get('dashboard.show_after_each_attack', True)
+                if show_dashboard:
+                    self._print_dashboard()
+
+                # ── Anti-ban: cooldown before next attack ────────────────────
                 if self.is_running:
-                    delay = random.randint(5, 15)
-                    self.logger.info(f"⏳ Waiting {delay} seconds before next attack...")
-                    time.sleep(delay)
-                    
+                    if anti_ban_enabled:
+                        cooldown = random.uniform(cooldown_min, cooldown_max)
+                        self.logger.info(
+                            f"😴 Anti-ban cooldown: waiting {cooldown:.0f}s before next attack..."
+                        )
+                    else:
+                        cooldown = random.randint(5, 15)
+                        self.logger.info(f"⏳ Waiting {cooldown:.0f}s before next attack...")
+                    time.sleep(cooldown)
+
         except Exception as e:
             self.logger.error(f"Auto attack loop error: {e}")
         finally:
@@ -173,6 +273,8 @@ class AutoAttacker:
         """Execute the complete attack sequence following your exact process"""
         try:
             coords = self._get_coords()
+            delay_variance = self.config.get('anti_ban.delay_variance', 0.3)
+            click_offset = self.config.get('anti_ban.click_offset_range', 5)
             
             # Step 1: Click attack button
             if 'attack' not in coords:
@@ -181,16 +283,18 @@ class AutoAttacker:
                 
             attack_coord = coords['attack']
             self.logger.info(f"1️⃣ Clicking attack button at ({attack_coord['x']}, {attack_coord['y']})")
-            pyautogui.click(attack_coord['x'], attack_coord['y'])
-            time.sleep(2)  # Wait for attack screen
+            hx, hy = humanize_click(attack_coord['x'], attack_coord['y'], click_offset)
+            pyautogui.click(hx, hy)
+            time.sleep(humanize_delay(2.0, delay_variance))
             
             # Step 2-6: Find good loot target
             if not self._find_good_loot_target():
                 self.logger.warning("Could not find good loot target")
                 return False
             
-            # Step 7: Start attack recording (only after good loot found)
-            session_name = self._get_next_attack_session()
+            # Step 7: Select attack session (AI strategy selection or rotation)
+            screenshot_path = self.screen_capture.capture_game_screen()
+            session_name = self._select_best_strategy(screenshot_path)
             self.logger.info(f"🎯 Starting attack with session: {session_name}")
 
             # Capture pixel at return_home BEFORE playback starts so that
@@ -380,6 +484,8 @@ class AutoAttacker:
     def _click_attack_confirm_button(self) -> bool:
         """Click the green attack confirm button that appears after find_a_match (new CoC update)"""
         coords = self._get_coords()
+        delay_variance = self.config.get('anti_ban.delay_variance', 0.3)
+        click_offset = self.config.get('anti_ban.click_offset_range', 5)
         
         if 'attack_confirm_button' not in coords:
             self.logger.error("attack_confirm_button not mapped - this button is required since the latest CoC update")
@@ -387,8 +493,9 @@ class AutoAttacker:
         
         confirm_coord = coords['attack_confirm_button']
         self.logger.info(f"⚔️ Clicking attack_confirm_button at ({confirm_coord['x']}, {confirm_coord['y']})")
-        pyautogui.click(confirm_coord['x'], confirm_coord['y'])
-        time.sleep(3)  # Wait for matchmaking to find a base
+        hx, hy = humanize_click(confirm_coord['x'], confirm_coord['y'], click_offset)
+        pyautogui.click(hx, hy)
+        time.sleep(humanize_delay(3.0, delay_variance))
         return True
 
     def _find_good_loot_target(self) -> bool:
@@ -415,6 +522,8 @@ class AutoAttacker:
     def _search_bases_cycle(self, coords: Dict) -> bool:
         """Perform one complete cycle of base searching."""
         max_attempts = self.max_search_attempts
+        delay_variance = self.config.get('anti_ban.delay_variance', 0.3)
+        click_offset = self.config.get('anti_ban.click_offset_range', 5)
         
         for attempt in range(1, max_attempts + 1):
             if not self.is_running:
@@ -427,8 +536,9 @@ class AutoAttacker:
                     f"2️⃣ Clicking find_a_match at ({find_coord['x']}, {find_coord['y']}) "
                     f"- Attempt {attempt}/{max_attempts}"
                 )
-                pyautogui.click(find_coord['x'], find_coord['y'])
-                time.sleep(2)  # Wait for confirm button to appear
+                hx, hy = humanize_click(find_coord['x'], find_coord['y'], click_offset)
+                pyautogui.click(hx, hy)
+                time.sleep(humanize_delay(2.0, delay_variance))
                 
                 # Click the green attack confirm button (new CoC update)
                 if not self._click_attack_confirm_button():
@@ -441,12 +551,13 @@ class AutoAttacker:
                     f"2️⃣ Skipping to next base - Attempt {attempt}/{max_attempts}"
                 )
                 next_coord = coords['next_button']
-                pyautogui.click(next_coord['x'], next_coord['y'])
-                time.sleep(3)
+                hx, hy = humanize_click(next_coord['x'], next_coord['y'], click_offset)
+                pyautogui.click(hx, hy)
+                time.sleep(humanize_delay(3.0, delay_variance))
             
             # Wait for base to load
             self.logger.info("3️⃣ Waiting for base to load...")
-            time.sleep(5)
+            time.sleep(humanize_delay(5.0, delay_variance))
             
             # Check loot
             screenshot_path = self.screen_capture.capture_game_screen()
@@ -513,7 +624,13 @@ class AutoAttacker:
             return False
 
         recommendation = analysis.get("recommendation", "SKIP").upper()
-        return recommendation == "ATTACK"
+        attack = recommendation == "ATTACK"
+
+        # Store analysis for loot tracking in the attack loop
+        if attack:
+            self._last_ai_analysis = analysis
+
+        return attack
 
     def _check_loot(self) -> bool:
         """Check if enemy base has good loot.
@@ -535,18 +652,23 @@ class AutoAttacker:
     def _click_end_button_and_retry(self) -> None:
         """Click end button when Town Hall is not detected and retry"""
         coords = self._get_coords()
+        delay_variance = self.config.get('anti_ban.delay_variance', 0.3)
+        click_offset = self.config.get('anti_ban.click_offset_range', 5)
         
         if 'end_button' in coords:
             end_coord = coords['end_button']
             self.logger.info(f"🔄 Clicking end_button at ({end_coord['x']}, {end_coord['y']})")
-            pyautogui.click(end_coord['x'], end_coord['y'])
-            time.sleep(3)  # Wait for end action to complete
+            hx, hy = humanize_click(end_coord['x'], end_coord['y'], click_offset)
+            pyautogui.click(hx, hy)
+            time.sleep(humanize_delay(3.0, delay_variance))
         else:
             self.logger.warning("end_button not mapped - cannot retry automatically")
     
     def _return_home(self) -> None:
         """Return to home base after battle"""
         coords = self._get_coords()
+        delay_variance = self.config.get('anti_ban.delay_variance', 0.3)
+        click_offset = self.config.get('anti_ban.click_offset_range', 5)
         
         self.logger.info("🏠 Returning to home base...")
         
@@ -554,8 +676,9 @@ class AutoAttacker:
         if 'return_home' in coords:
             home_coord = coords['return_home']
             self.logger.info(f"Clicking return_home at ({home_coord['x']}, {home_coord['y']})")
-            pyautogui.click(home_coord['x'], home_coord['y'])
-            time.sleep(5)  # Wait to return home
+            hx, hy = humanize_click(home_coord['x'], home_coord['y'], click_offset)
+            pyautogui.click(hx, hy)
+            time.sleep(humanize_delay(5.0, delay_variance))
         else:
             self.logger.warning("return_home button not mapped")
         
@@ -569,6 +692,244 @@ class AutoAttacker:
         session = self.attack_sessions[self.current_session_index]
         self.current_session_index = (self.current_session_index + 1) % len(self.attack_sessions)
         return session
+
+    def _select_best_strategy(self, screenshot_path: Optional[str]) -> str:
+        """Select the best attack strategy for the current base.
+
+        Uses AI strategy selection when enabled and multiple strategies are
+        available; otherwise falls back to round-robin rotation.
+
+        Args:
+            screenshot_path: Path to a screenshot of the enemy base (may be
+                ``None`` or empty if no screenshot was captured).
+
+        Returns:
+            The session name to use for the attack.
+        """
+        strategy_ai_enabled = self.config.get('strategy_selection.enabled', True) and \
+                               self.config.get('strategy_selection.use_ai', True)
+        strategy_metadata = self.config.get('strategy_selection.strategies', {})
+
+        # Build list of strategies enriched with metadata
+        strategies = []
+        for session_name in self.attack_sessions:
+            meta = strategy_metadata.get(session_name, {})
+            strategies.append({
+                'session_name': session_name,
+                'name': meta.get('name', session_name),
+                'description': meta.get('description', ''),
+            })
+
+        # Skip AI call if disabled, only one strategy, or no screenshot available
+        if (not strategy_ai_enabled
+                or len(strategies) <= 1
+                or not screenshot_path
+                or not self.config.get('ai_analyzer.enabled', False)):
+            return self._get_next_attack_session()
+
+        self.logger.info("🧠 Using AI to select best attack strategy...")
+        result = self.ai_analyzer.select_strategy(screenshot_path, strategies)
+
+        if result.get('error'):
+            self.logger.warning(f"⚠️ AI strategy selection failed, using rotation. Reason: {result.get('reasoning')}")
+            return self._get_next_attack_session()
+
+        selected = result.get('selected_strategy', '')
+        if selected in self.attack_sessions:
+            self.logger.info(f"🎯 AI selected strategy: {selected} — {result.get('reasoning', '')}")
+            return selected
+
+        self.logger.warning(f"⚠️ AI returned unknown strategy '{selected}', using rotation.")
+        return self._get_next_attack_session()
+
+    # ── Dashboard & logging ───────────────────────────────────────────────────
+
+    def _print_dashboard(self) -> None:
+        """Print a compact live dashboard after each attack cycle."""
+        with self._stats_lock:
+            snap = self.stats.copy()
+
+        now = datetime.now()
+        if snap['start_time']:
+            elapsed = now - snap['start_time']
+            total_secs = int(elapsed.total_seconds())
+            runtime_str = f"{total_secs // 3600}h {(total_secs % 3600) // 60}m"
+            runtime_hours = elapsed.total_seconds() / 3600
+        else:
+            runtime_str = "0h 0m"
+            runtime_hours = 0
+
+        total = snap['total_attacks']
+        success = snap['successful_attacks']
+        success_pct = (success / max(total, 1)) * 100
+        atk_per_hr = total / max(runtime_hours, 1)
+
+        max_attacks_per_session = self.config.get('anti_ban.max_attacks_per_session', 100)
+        break_every_n = self.config.get('anti_ban.break_every_n_attacks', 10)
+        next_break = break_every_n - (total % break_every_n) if break_every_n > 0 else 0
+
+        total_gold = snap['total_gold_farmed']
+        total_elixir = snap['total_elixir_farmed']
+        total_dark = snap['total_dark_farmed']
+        best_loot = snap['best_attack_loot']
+        best_num = snap['best_attack_number']
+        avg_gold = total_gold // max(success, 1)
+        avg_elixir = total_elixir // max(success, 1)
+        avg_dark = total_dark // max(success, 1)
+
+        last_atk = snap['last_attack_time'].strftime("%H:%M:%S") if snap['last_attack_time'] else "N/A"
+        # current_session_index already advanced past the last used session; step back safely
+        if self.attack_sessions:
+            last_idx = (self.current_session_index - 1) % len(self.attack_sessions)
+            session_name = self.attack_sessions[last_idx]
+        else:
+            session_name = "N/A"
+
+        width = 50
+        border = "╔" + "═" * (width - 2) + "╗"
+        mid    = "╠" + "═" * (width - 2) + "╣"
+        bottom = "╚" + "═" * (width - 2) + "╝"
+
+        def row(text: str) -> str:
+            pad = width - 4 - len(text)
+            return f"║ {text}{' ' * max(pad, 0)} ║"
+
+        lines = [
+            border,
+            row("        COC ATTACK BOT - DASHBOARD"),
+            mid,
+            row(f"Runtime: {runtime_str:<10} │ Status: {'ATTACKING' if self.is_running else 'STOPPED'}"),
+            row(f"Attacks: {total}/{max_attacks_per_session:<6}  │ Success: {success_pct:.0f}%"),
+            row(f"Atk/hr:  {atk_per_hr:<10.1f} │ Next break: {next_break} more"),
+            mid,
+            row("RESOURCES FARMED"),
+            row(f"💰 Gold:   {total_gold:>12,}  │ Avg: {avg_gold:,}/atk"),
+            row(f"💧 Elixir: {total_elixir:>12,}  │ Avg: {avg_elixir:,}/atk"),
+            row(f"⚫ Dark:   {total_dark:>12,}  │ Avg: {avg_dark:,}/atk"),
+            row(f"🏆 Best:   {best_loot:,} (Attack #{best_num})"),
+            mid,
+            row(f"Last Atk: {last_atk:<12} │ Session: {session_name}"),
+            bottom,
+        ]
+        print("\n".join(lines))
+
+    def _print_session_summary(self) -> None:
+        """Print a final summary when the session ends."""
+        with self._stats_lock:
+            snap = self.stats.copy()
+
+        now = datetime.now()
+        if snap['start_time']:
+            elapsed = now - snap['start_time']
+            total_secs = int(elapsed.total_seconds())
+            runtime_str = (
+                f"{total_secs // 3600}h "
+                f"{(total_secs % 3600) // 60}m "
+                f"{total_secs % 60}s"
+            )
+            runtime_hours = elapsed.total_seconds() / 3600
+        else:
+            runtime_str = "0h 0m 0s"
+            runtime_hours = 0
+
+        total = snap['total_attacks']
+        success = snap['successful_attacks']
+        failed = snap['failed_attacks']
+        success_pct = (success / max(total, 1)) * 100
+        atk_per_hr = total / max(runtime_hours, 1)
+
+        total_gold = snap['total_gold_farmed']
+        total_elixir = snap['total_elixir_farmed']
+        total_dark = snap['total_dark_farmed']
+        best_loot = snap['best_attack_loot']
+        best_num = snap['best_attack_number']
+        avg_gold = total_gold // max(success, 1)
+        avg_elixir = total_elixir // max(success, 1)
+        avg_dark = total_dark // max(success, 1)
+
+        sep = "═" * 43
+        print(f"\n{sep}")
+        print("       SESSION COMPLETE SUMMARY")
+        print(sep)
+        print(f"Runtime:           {runtime_str}")
+        print(f"Total Attacks:     {total}")
+        print(f"Successful:        {success} ({success_pct:.0f}%)")
+        print(f"Failed:            {failed}")
+        print()
+        print("TOTAL LOOT FARMED:")
+        print(f"  Gold:            {total_gold:,}")
+        print(f"  Elixir:          {total_elixir:,}")
+        print(f"  Dark Elixir:     {total_dark:,}")
+        print()
+        print(f"Best Attack:       {best_loot:,} gold+elixir (Attack #{best_num})")
+        print(f"Average Loot/atk:  {avg_gold:,} gold  /  {avg_elixir:,} elixir  /  {avg_dark:,} dark")
+        print(f"Attacks/hour:      {atk_per_hr:.1f}")
+        print(sep)
+
+    def _save_session_stats(self) -> None:
+        """Save session statistics to a daily JSON log file."""
+        save_stats = self.config.get('dashboard.save_session_stats', True)
+        if not save_stats:
+            return
+
+        stats_dir = self.config.get('dashboard.stats_directory', 'logs')
+        try:
+            os.makedirs(stats_dir, exist_ok=True)
+        except OSError as e:
+            self.logger.warning(f"Could not create stats directory '{stats_dir}': {e}")
+            return
+
+        with self._stats_lock:
+            snap = self.stats.copy()
+
+        now = datetime.now()
+        filename = os.path.join(stats_dir, f"stats_{now.strftime('%Y-%m-%d')}.json")
+
+        # Serialise datetimes to strings
+        def _serialize(v):
+            return v.isoformat() if isinstance(v, datetime) else v
+
+        total = snap['total_attacks']
+        success = snap['successful_attacks']
+        runtime_hours = 0.0
+        if snap['start_time']:
+            runtime_hours = (now - snap['start_time']).total_seconds() / 3600
+
+        record = {
+            'session_end': now.isoformat(),
+            'session_start': _serialize(snap['start_time']),
+            'runtime_hours': round(runtime_hours, 3),
+            'total_attacks': total,
+            'successful_attacks': success,
+            'failed_attacks': snap['failed_attacks'],
+            'success_rate_pct': round((success / max(total, 1)) * 100, 1),
+            'attacks_per_hour': round(total / max(runtime_hours, 1), 2),
+            'total_gold_farmed': snap['total_gold_farmed'],
+            'total_elixir_farmed': snap['total_elixir_farmed'],
+            'total_dark_farmed': snap['total_dark_farmed'],
+            'best_attack_loot': snap['best_attack_loot'],
+            'best_attack_number': snap['best_attack_number'],
+            'configured_sessions': list(self.attack_sessions),
+        }
+
+        # Append to existing daily file if present
+        existing = []
+        if os.path.exists(filename):
+            try:
+                with open(filename, 'r', encoding='utf-8') as fh:
+                    existing = json.load(fh)
+                    if not isinstance(existing, list):
+                        existing = [existing]
+            except (json.JSONDecodeError, OSError):
+                existing = []
+
+        existing.append(record)
+        try:
+            with open(filename, 'w', encoding='utf-8') as fh:
+                json.dump(existing, fh, indent=2)
+            self.logger.info(f"📊 Session stats saved to {filename}")
+        except OSError as e:
+            self.logger.warning(f"Could not save session stats: {e}")
     
     def get_stats(self) -> Dict:
         """Get automation statistics"""

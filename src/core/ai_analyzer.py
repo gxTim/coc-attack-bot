@@ -6,7 +6,7 @@ import os
 import base64
 import json
 import requests
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional
 from PIL import Image
 import io
 
@@ -249,6 +249,82 @@ Respond in this exact JSON format:
             "error": True
         }
     
+    def select_strategy(self, screenshot_path: str, strategies: List[Dict]) -> Dict:
+        """Use AI to select the best attack strategy for this base.
+
+        Args:
+            screenshot_path: Path to the enemy base screenshot.
+            strategies: List of strategy dicts, each with keys:
+                ``name`` (str), ``description`` (str), and ``session_name`` (str).
+
+        Returns:
+            Dict with ``selected_strategy`` (session_name str) and
+            ``reasoning`` (str).  On error falls back to the first strategy.
+        """
+        if not strategies:
+            return {"selected_strategy": "", "reasoning": "No strategies available", "error": True}
+
+        if len(strategies) == 1:
+            return {
+                "selected_strategy": strategies[0].get("session_name", ""),
+                "reasoning": "Only one strategy available — selected automatically.",
+            }
+
+        try:
+            if not self.api_key:
+                raise ValueError("No API key configured")
+
+            image_data = self._encode_image(screenshot_path)
+            if not image_data:
+                raise ValueError("Failed to encode image")
+
+            strategy_list_text = "\n".join(
+                f'- "{s["session_name"]}": {s.get("description", s.get("name", s["session_name"]))}'
+                for s in strategies
+            )
+            prompt = f"""You are a Clash of Clans strategy expert.
+Given this enemy base screenshot and the available attack strategies, select the BEST strategy.
+
+Available strategies:
+{strategy_list_text}
+
+Analyze the base layout and recommend which strategy to use.
+Consider:
+- Air defense placement and levels (for air attacks)
+- Wall layout (for ground attacks)
+- Collector/storage placement (for farming raids)
+- Base compactness
+
+Respond in JSON only (no markdown):
+{{
+    "selected_strategy": "<session_name from the list above>",
+    "reasoning": "Brief explanation why this strategy fits"
+}}"""
+
+            response = self._send_gemini_request(image_data, prompt)
+            if response and "selected_strategy" in response:
+                # Validate the returned strategy name
+                valid_names = {s["session_name"] for s in strategies}
+                if response["selected_strategy"] in valid_names:
+                    return response
+                self.logger.warning(
+                    f"⚠️ AI selected unknown strategy '{response['selected_strategy']}'; falling back."
+                )
+
+            # Fallback: return first strategy
+            return {
+                "selected_strategy": strategies[0].get("session_name", ""),
+                "reasoning": "Fallback: AI response was invalid.",
+            }
+
+        except Exception as e:
+            self.logger.error(f"Strategy selection error: {e}")
+            return {
+                "selected_strategy": strategies[0].get("session_name", "") if strategies else "",
+                "reasoning": f"Fallback due to error: {e}",
+                "error": True,
+            }
+
     def test_connection(self) -> bool:
         """Test connection to Gemini API"""
         try:

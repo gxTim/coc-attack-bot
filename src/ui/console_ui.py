@@ -167,6 +167,26 @@ class ConsoleUI:
             print("No sessions selected")
             return
 
+        # Strategy descriptions for AI selection
+        print("\n" + "─" * 40)
+        print("STRATEGY DESCRIPTIONS (optional)")
+        print("─" * 40)
+        print("You can add a description for each selected recording.")
+        print("The AI will use these descriptions to pick the best strategy per base.")
+        print("Press Enter to skip a session's description.")
+        strategy_metadata = self.bot.config.get('strategy_selection.strategies', {})
+        for session_name in selected_sessions:
+            existing_desc = strategy_metadata.get(session_name, {}).get('description', '')
+            prompt_hint = f" [{existing_desc}]" if existing_desc else ""
+            desc = input(f"Description for '{session_name}'{prompt_hint}: ").strip()
+            if not desc and existing_desc:
+                desc = existing_desc  # keep existing if user pressed enter
+            if desc:
+                if session_name not in strategy_metadata:
+                    strategy_metadata[session_name] = {}
+                strategy_metadata[session_name]['description'] = desc
+        self.bot.config.set('strategy_selection.strategies', strategy_metadata)
+
         # AI Configuration
         use_ai = input("\nEnable AI Analysis for this run? (y/n, default y): ").strip().lower()
         use_ai = use_ai != 'n'

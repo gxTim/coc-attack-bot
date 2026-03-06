@@ -11,6 +11,12 @@ import threading
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
+try:
+    import win32api
+    _HAS_WIN32API = True
+except ImportError:
+    _HAS_WIN32API = False
+
 class AttackRecorder:
     """Records attack sessions including mouse movements, clicks, and timing"""
     
@@ -133,9 +139,8 @@ class AttackRecorder:
                 
                 # Auto-click detection (enabled by default)
                 if self.auto_detect_clicks:
-                    try:
-                        # Method 1: Try win32 API for reliable mouse detection
-                        import win32api
+                    if _HAS_WIN32API:
+                        # Method 1: Use win32 API for reliable mouse detection
                         left_button_state = win32api.GetKeyState(0x01)  # VK_LBUTTON
                         right_button_state = win32api.GetKeyState(0x02)  # VK_RBUTTON
                         
@@ -146,19 +151,16 @@ class AttackRecorder:
                                 self._add_action('click', x, y, current_time)
                                 print(f"🖱️ Auto-recorded click at ({x}, {y})")
                                 self._last_click_time = current_time
-                                
-                    except Exception as e:
+                    else:
                         # Method 2: Fallback using pyautogui mouse detection
                         try:
-                            # Check if mouse button is pressed using alternative method
                             if hasattr(pyautogui, '_mouseDown') and pyautogui._mouseDown:
                                 x, y = pyautogui.position()
                                 if (current_time - self._last_click_time) > 0.15:
                                     self._add_action('click', x, y, current_time)
                                     print(f"🖱️ Auto-recorded click at ({x}, {y}) [fallback]")
                                     self._last_click_time = current_time
-                        except:
-                            # If all auto-detection fails, inform user about manual mode
+                        except (AttributeError, TypeError):
                             if not hasattr(self, '_fallback_warned'):
                                 print("⚠️ Auto-click detection failed - use F6 to manually record clicks")
                                 self._fallback_warned = True

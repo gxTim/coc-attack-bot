@@ -54,6 +54,7 @@ class AutoAttacker:
         self.is_running = False
         self.auto_thread = None
         self._stats_lock = threading.Lock()
+        self._start_lock = threading.Lock()
         self.stats = {
             'total_attacks': 0,
             'successful_attacks': 0,
@@ -105,23 +106,24 @@ class AutoAttacker:
     
     def start_auto_attack(self) -> None:
         """Start the automated attack system"""
-        if self.is_running:
-            print("Auto attacker already running")
-            return
-        
-        if not self.attack_sessions:
-            self.logger.error("No attack sessions configured. Please add at least one session.")
-            return
-        
-        self.is_running = True
-        self.stats['start_time'] = datetime.now()
-        self.stats['hour_start_time'] = datetime.now()
-        self.stats['attacks_this_hour'] = 0
-        
-        self.auto_thread = threading.Thread(target=self._auto_attack_loop)
-        self.auto_thread.daemon = True
-        self.auto_thread.start()
-        
+        with self._start_lock:
+            if self.is_running:
+                print("Auto attacker already running")
+                return
+
+            if not self.attack_sessions:
+                self.logger.error("No attack sessions configured. Please add at least one session.")
+                return
+
+            self.is_running = True
+            self.stats['start_time'] = datetime.now()
+            self.stats['hour_start_time'] = datetime.now()
+            self.stats['attacks_this_hour'] = 0
+
+            self.auto_thread = threading.Thread(target=self._auto_attack_loop)
+            self.auto_thread.daemon = True
+            self.auto_thread.start()
+
         self.logger.info("Auto attacker started")
     
     def stop_auto_attack(self) -> None:
@@ -220,10 +222,13 @@ class AutoAttacker:
 
                 # Execute attack sequence
                 self._last_ai_analysis = None
-                if self._execute_attack_sequence():
+                attack_result = self._execute_attack_sequence()
+                if attack_result is True:
                     with self._stats_lock:
+                        self.stats['total_attacks'] += 1
                         self.stats['successful_attacks'] += 1
                         self.stats['attacks_this_hour'] += 1
+                        self.stats['last_attack_time'] = datetime.now()
                         # Accumulate loot from AI analysis
                         if self._last_ai_analysis:
                             loot = self._last_ai_analysis.get('loot', {})
@@ -236,16 +241,18 @@ class AutoAttacker:
                             total_loot = gold + elixir
                             if total_loot > self.stats['best_attack_loot']:
                                 self.stats['best_attack_loot'] = total_loot
-                                self.stats['best_attack_number'] = self.stats['total_attacks'] + 1
+                                self.stats['best_attack_number'] = self.stats['total_attacks']
                     self.logger.info("✅ Attack sequence completed successfully")
-                else:
+                elif attack_result is False:
+                    # Attack was launched but failed (battle error, not a search failure)
                     with self._stats_lock:
+                        self.stats['total_attacks'] += 1
                         self.stats['failed_attacks'] += 1
+                        self.stats['last_attack_time'] = datetime.now()
                     self.logger.warning("❌ Attack sequence failed")
-
-                with self._stats_lock:
-                    self.stats['total_attacks'] += 1
-                    self.stats['last_attack_time'] = datetime.now()
+                else:
+                    # attack_result is None — no suitable base found; don't count as an attack
+                    self.logger.warning("⚠️ No suitable base found — skipping attack count")
 
                 # Print dashboard after each cycle
                 show_dashboard = self.config.get('dashboard.show_after_each_attack', True)
@@ -262,36 +269,53 @@ class AutoAttacker:
                     else:
                         cooldown = random.randint(5, 15)
                         self.logger.info(f"⏳ Waiting {cooldown:.0f}s before next attack...")
-                    time.sleep(cooldown)
+                    cooldown_end = time.time() + cooldown
+                    while self.is_running and time.time() < cooldown_end:
+                        time.sleep(0.5)
 
         except Exception as e:
             self.logger.error(f"Auto attack loop error: {e}")
         finally:
             self.is_running = False
     
-    def _execute_attack_sequence(self) -> bool:
-        """Execute the complete attack sequence following your exact process"""
+    def _execute_attack_sequence(self) -> Optional[bool]:
+        """Execute the complete attack sequence following your exact process.
+
+        Returns:
+            True  — attack was launched and completed successfully.
+            False — attack was launched but failed (battle error).
+            None  — no suitable base found; no attack was launched.
+        """
         try:
             coords = self._get_coords()
             delay_variance = self.config.get('anti_ban.delay_variance', 0.3)
             click_offset = self.config.get('anti_ban.click_offset_range', 5)
-            
+
             # Step 1: Click attack button
             if 'attack' not in coords:
                 self.logger.error("Attack button not mapped")
-                return False
-                
+                return None
+
+            if not self.is_running:
+                return None
+
             attack_coord = coords['attack']
             self.logger.info(f"1️⃣ Clicking attack button at ({attack_coord['x']}, {attack_coord['y']})")
             hx, hy = humanize_click(attack_coord['x'], attack_coord['y'], click_offset)
             pyautogui.click(hx, hy)
             time.sleep(humanize_delay(2.0, delay_variance))
-            
+
+            if not self.is_running:
+                return None
+
             # Step 2-6: Find good loot target
             if not self._find_good_loot_target():
                 self.logger.warning("Could not find good loot target")
-                return False
-            
+                return None
+
+            if not self.is_running:
+                return None
+
             # Step 7: Select attack session (AI strategy selection or rotation)
             screenshot_path = self.screen_capture.capture_game_screen()
             session_name = self._select_best_strategy(screenshot_path)
@@ -309,17 +333,17 @@ class AutoAttacker:
             if not self.attack_player.play_attack(session_name, speed=1.0, auto_mode=True):
                 self.logger.error("Failed to start attack recording")
                 return False
-            
+
             self.logger.info("✅ Attack recording started - troops deploying...")
-            
+
             # Step 8: Wait for battle completion (detect end instead of fixed 3 min)
             self._wait_for_battle_end(initial_battle_pixel=initial_battle_pixel)
-            
+
             # Step 9: Return home
             self._return_home()
-            
+
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Attack sequence failed: {e}")
             return False
@@ -509,6 +533,9 @@ class AutoAttacker:
         
         # Try up to two full search cycles (second cycle after clicking end button)
         for cycle in range(2):
+            if not self.is_running:
+                return False
+
             if cycle > 0:
                 self.logger.info("🔄 No good bases found - clicking end button to restart search...")
                 self._click_end_button_and_retry()
@@ -539,7 +566,10 @@ class AutoAttacker:
                 hx, hy = humanize_click(find_coord['x'], find_coord['y'], click_offset)
                 pyautogui.click(hx, hy)
                 time.sleep(humanize_delay(2.0, delay_variance))
-                
+
+                if not self.is_running:
+                    return False
+
                 # Click the green attack confirm button (new CoC update)
                 if not self._click_attack_confirm_button():
                     self.logger.error("Failed to click attack confirm button")
@@ -554,11 +584,17 @@ class AutoAttacker:
                 hx, hy = humanize_click(next_coord['x'], next_coord['y'], click_offset)
                 pyautogui.click(hx, hy)
                 time.sleep(humanize_delay(3.0, delay_variance))
-            
+
+            if not self.is_running:
+                return False
+
             # Wait for base to load
             self.logger.info("3️⃣ Waiting for base to load...")
             time.sleep(humanize_delay(5.0, delay_variance))
-            
+
+            if not self.is_running:
+                return False
+
             # Check loot
             screenshot_path = self.screen_capture.capture_game_screen()
             if not screenshot_path:
@@ -650,38 +686,65 @@ class AutoAttacker:
         return False
     
     def _click_end_button_and_retry(self) -> None:
-        """Click end button when Town Hall is not detected and retry"""
+        """Click end button to abort the current search, then confirm the surrender dialog."""
         coords = self._get_coords()
         delay_variance = self.config.get('anti_ban.delay_variance', 0.3)
         click_offset = self.config.get('anti_ban.click_offset_range', 5)
-        
+
         if 'end_button' in coords:
             end_coord = coords['end_button']
             self.logger.info(f"🔄 Clicking end_button at ({end_coord['x']}, {end_coord['y']})")
             hx, hy = humanize_click(end_coord['x'], end_coord['y'], click_offset)
             pyautogui.click(hx, hy)
-            time.sleep(humanize_delay(3.0, delay_variance))
+            time.sleep(humanize_delay(2.0, delay_variance))
+
+            # After clicking end_button a surrender/confirm dialog appears.
+            # First click the surrender button (if mapped), then confirm.
+            if 'surrender_button' in coords:
+                surr_coord = coords['surrender_button']
+                self.logger.info(f"🔄 Clicking surrender_button at ({surr_coord['x']}, {surr_coord['y']})")
+                hx, hy = humanize_click(surr_coord['x'], surr_coord['y'], click_offset)
+                pyautogui.click(hx, hy)
+                time.sleep(humanize_delay(1.5, delay_variance))
+
+            if 'surrender_confirm' in coords:
+                conf_coord = coords['surrender_confirm']
+                self.logger.info(f"🔄 Clicking surrender_confirm at ({conf_coord['x']}, {conf_coord['y']})")
+                hx, hy = humanize_click(conf_coord['x'], conf_coord['y'], click_offset)
+                pyautogui.click(hx, hy)
+                time.sleep(humanize_delay(2.0, delay_variance))
         else:
             self.logger.warning("end_button not mapped - cannot retry automatically")
     
     def _return_home(self) -> None:
-        """Return to home base after battle"""
+        """Return to home base after battle, with up to 3 click attempts."""
         coords = self._get_coords()
         delay_variance = self.config.get('anti_ban.delay_variance', 0.3)
         click_offset = self.config.get('anti_ban.click_offset_range', 5)
-        
+
         self.logger.info("🏠 Returning to home base...")
-        
-        # Only click return_home button
-        if 'return_home' in coords:
-            home_coord = coords['return_home']
-            self.logger.info(f"Clicking return_home at ({home_coord['x']}, {home_coord['y']})")
+
+        if 'return_home' not in coords:
+            self.logger.warning("return_home button not mapped")
+            return
+
+        home_coord = coords['return_home']
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            self.logger.info(
+                f"Clicking return_home at ({home_coord['x']}, {home_coord['y']}) "
+                f"(attempt {attempt}/{max_attempts})"
+            )
             hx, hy = humanize_click(home_coord['x'], home_coord['y'], click_offset)
             pyautogui.click(hx, hy)
             time.sleep(humanize_delay(5.0, delay_variance))
-        else:
-            self.logger.warning("return_home button not mapped")
-        
+
+            # Give the game a moment to respond; if we're on the last attempt
+            # we treat the click as successful regardless.
+            if attempt < max_attempts:
+                # A short extra wait between retries to let the UI settle.
+                time.sleep(humanize_delay(2.0, delay_variance))
+
         self.logger.info("✅ Returned to home base")
     
     def _get_next_attack_session(self) -> str:
@@ -972,6 +1035,9 @@ class AutoAttacker:
             'find_a_match': 'Find match/search button in attack screen',
             'attack_confirm_button': 'Green attack confirm button after find_a_match (new CoC update)',
             'next_button': 'Next button to skip bases with low loot',
+            'end_button': 'End/surrender button to abort a running search or battle',
+            'surrender_button': 'Surrender confirmation button shown after end_button',
+            'surrender_confirm': 'Final "Okay/Yes" button in the surrender confirmation dialog',
             'return_home': 'Return home button after battle completion',
             'enemy_gold': 'Enemy gold display for loot checking',
             'enemy_elixir': 'Enemy elixir display for loot checking',

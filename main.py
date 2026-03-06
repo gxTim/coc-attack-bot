@@ -5,7 +5,6 @@ Automated Clash of Clans attack recording and playback bot for Windows
 """
 
 import sys
-import os
 import traceback
 from src.bot_controller import BotController
 

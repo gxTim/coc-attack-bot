@@ -5,6 +5,7 @@ AI Analyzer - Google Gemini integration for base analysis
 import os
 import base64
 import json
+import time
 import requests
 from typing import Dict, List, Optional
 from PIL import Image
@@ -166,77 +167,114 @@ Respond in this exact JSON format:
 """
     
     def _send_gemini_request(self, image_data: str, prompt: str) -> Optional[Dict]:
-        """Send request to Google Gemini API"""
-        try:
-            headers = {
-                'Content-Type': 'application/json',
-            }
-            
-            payload = {
-                "contents": [{
-                    "parts": [
-                        {"text": prompt},
-                        {
-                            "inline_data": {
-                                "mime_type": "image/png",
-                                "data": image_data
-                            }
+        """Send request to Google Gemini API with exponential backoff for rate limits."""
+        headers = {
+            'Content-Type': 'application/json',
+        }
+
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": "image/png",
+                            "data": image_data
                         }
-                    ]
-                }],
-                "generationConfig": {
-                    "temperature": 0.1,  # Low temperature for consistent analysis
-                    "topK": 1,
-                    "topP": 1,
-                    "maxOutputTokens": 1024,
-                }
+                    }
+                ]
+            }],
+            "generationConfig": {
+                "temperature": 0.1,  # Low temperature for consistent analysis
+                "topK": 1,
+                "topP": 1,
+                "maxOutputTokens": 1024,
             }
-            
-            url = f"{self.base_url}?key={self.api_key}"
-            
-            self.logger.info("🌐 Sending request to Gemini API...")
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            
-            if response.status_code == 200:
-                result = response.json()
-                
-                # Extract text from response
-                if 'candidates' in result and len(result['candidates']) > 0:
-                    content = result['candidates'][0]['content']['parts'][0]['text']
-                    
-                    # Parse JSON response
-                    try:
-                        # Clean up response (remove markdown formatting if present)
-                        content = content.strip()
-                        if content.startswith('```json'):
-                            content = content[7:]
-                        if content.endswith('```'):
-                            content = content[:-3]
-                        content = content.strip()
-                        
-                        analysis = json.loads(content)
-                        return analysis
-                        
-                    except json.JSONDecodeError as e:
-                        self.logger.error(f"Failed to parse AI response as JSON: {e}")
-                        self.logger.error(f"Raw response: {content}")
+        }
+
+        url = f"{self.base_url}?key={self.api_key}"
+        max_retries = 3
+        default_retry_delay = 10  # seconds
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.logger.info("🌐 Sending request to Gemini API...")
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
+
+                if response.status_code == 200:
+                    result = response.json()
+
+                    # Extract text from response
+                    if 'candidates' in result and len(result['candidates']) > 0:
+                        content = result['candidates'][0]['content']['parts'][0]['text']
+
+                        # Parse JSON response
+                        try:
+                            # Clean up response (remove markdown formatting if present)
+                            content = content.strip()
+                            if content.startswith('```json'):
+                                content = content[7:]
+                            if content.endswith('```'):
+                                content = content[:-3]
+                            content = content.strip()
+
+                            analysis = json.loads(content)
+                            return analysis
+
+                        except json.JSONDecodeError as e:
+                            self.logger.error(f"Failed to parse AI response as JSON: {e}")
+                            self.logger.error(f"Raw response: {content}")
+                            return None
+                    else:
+                        self.logger.error("No candidates in Gemini response")
                         return None
-                else:
-                    self.logger.error("No candidates in Gemini response")
+
+                elif response.status_code == 404:
+                    self._log_404_error()
                     return None
-            elif response.status_code == 404:
-                self._log_404_error()
+
+                elif response.status_code == 429:
+                    # Rate limited — parse retryDelay from response body if available
+                    retry_delay = default_retry_delay
+                    try:
+                        body = response.json()
+                        # Gemini returns retryDelay as a string like "30s" inside error details
+                        for detail in body.get("error", {}).get("details", []):
+                            rd = detail.get("retryDelay", "")
+                            if rd:
+                                rd_secs = int(rd.rstrip("s")) if rd.rstrip("s").isdigit() else default_retry_delay
+                                retry_delay = max(retry_delay, rd_secs)
+                                break
+                    except Exception:
+                        pass
+
+                    if attempt < max_retries:
+                        wait = retry_delay * attempt  # exponential backoff
+                        self.logger.warning(
+                            f"⚠️ Gemini API rate limited (429). "
+                            f"Waiting {wait}s before retry {attempt}/{max_retries - 1}..."
+                        )
+                        time.sleep(wait)
+                        continue
+                    else:
+                        self.logger.error(
+                            f"❌ Gemini API rate limit exceeded after {max_retries} attempts. "
+                            f"Skipping request."
+                        )
+                        return None
+
+                else:
+                    self.logger.error(f"Gemini API error: {response.status_code} - {response.text}")
+                    return None
+
+            except requests.exceptions.Timeout:
+                self.logger.error("Gemini API request timeout")
                 return None
-            else:
-                self.logger.error(f"Gemini API error: {response.status_code} - {response.text}")
+            except Exception as e:
+                self.logger.error(f"Gemini API request error: {e}")
                 return None
-                
-        except requests.exceptions.Timeout:
-            self.logger.error("Gemini API request timeout")
-            return None
-        except Exception as e:
-            self.logger.error(f"Gemini API request error: {e}")
-            return None
+
+        return None
     
     def _create_error_response(self, error_msg: str) -> Dict:
         """Create error response with SKIP recommendation"""

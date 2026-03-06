@@ -63,8 +63,17 @@ class CoordinateMapper:
         except Exception as e:
             print(f"Error saving coordinates: {e}")
     
-    def start_mapping(self) -> None:
-        """Start interactive coordinate mapping"""
+    def start_mapping(self, prompt_callback=None) -> None:
+        """Start interactive coordinate mapping.
+
+        Args:
+            prompt_callback: Optional callable(x, y) -> str | None.
+                When provided it is called instead of ``input()`` whenever F2
+                is pressed to ask the user for a button name.  Return ``None``
+                (or an empty string) to skip recording that position.
+                If no callback is supplied the method falls back to ``input()``
+                for console-mode compatibility.
+        """
         if self.is_mapping:
             print("Already in mapping mode")
             return
@@ -92,7 +101,11 @@ class CoordinateMapper:
                 if keyboard.is_pressed('f2'):
                     # Record current mouse position
                     x, y = pyautogui.position()
-                    button_name = input(f"\nMouse at ({x}, {y}). Enter button name: ").strip()
+                    if prompt_callback is not None:
+                        raw = prompt_callback(x, y)
+                        button_name = raw.strip() if raw else ""
+                    else:
+                        button_name = input(f"\nMouse at ({x}, {y}). Enter button name: ").strip()
                     
                     if button_name:
                         current_session[button_name] = {"x": x, "y": y}
@@ -133,10 +146,15 @@ class CoordinateMapper:
             
             # Save any remaining mappings
             if current_session:
-                response = input(f"Save {len(current_session)} unsaved mappings? (y/n): ").strip().lower()
-                if response == 'y':
+                if prompt_callback is not None:
+                    # GUI mode: auto-save without blocking on input()
                     self.coordinates.update(current_session)
                     self.save_coordinates()
+                else:
+                    response = input(f"Save {len(current_session)} unsaved mappings? (y/n): ").strip().lower()
+                    if response == 'y':
+                        self.coordinates.update(current_session)
+                        self.save_coordinates()
     
     def get_coordinates(self, button_name: Optional[str] = None) -> Dict:
         """Get coordinates for a specific button or all buttons"""

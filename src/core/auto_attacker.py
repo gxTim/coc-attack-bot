@@ -28,7 +28,13 @@ _RETURN_HOME_TEMPLATE = os.path.join("templates", "return_home.png")
 # Pixel-colour change threshold used by the return_home heuristic detector.
 # A cumulative RGB-channel delta above this value is considered a significant
 # colour change indicating that the "Return Home" button has appeared.
-_PIXEL_COLOR_DIFF_THRESHOLD = 30
+# Raised from 30 → 50 to reduce false positives from minor pixel fluctuations.
+_PIXEL_COLOR_DIFF_THRESHOLD = 50
+
+# Number of consecutive poll cycles that must show a colour change before the
+# battle is declared finished.  Requiring multiple confirmations prevents brief
+# pixel fluctuations (e.g. animations) from triggering a false positive.
+_PIXEL_CONFIRM_REQUIRED = 2
 
 # Minimum seconds elapsed before the pixel-colour heuristic will declare the
 # battle finished.  This prevents false positives caused by brief colour
@@ -153,10 +159,8 @@ class AutoAttacker:
     def _auto_attack_loop(self) -> None:
         """Main automation loop"""
         try:
-            # Anti-ban config
+            # Anti-ban config — session-level values read once (others re-read per cycle)
             anti_ban_enabled = self.config.get('anti_ban.enabled', True)
-            cooldown_min = self.config.get('anti_ban.cooldown_min', 10)
-            cooldown_max = self.config.get('anti_ban.cooldown_max', 45)
             max_attacks_per_hour = self.config.get('anti_ban.max_attacks_per_hour', 20)
             max_attacks_per_session = self.config.get('anti_ban.max_attacks_per_session', 100)
             break_every_n = self.config.get('anti_ban.break_every_n_attacks', 10)
@@ -262,13 +266,21 @@ class AutoAttacker:
                 # ── Anti-ban: cooldown before next attack ────────────────────
                 if self.is_running:
                     if anti_ban_enabled:
+                        # Re-read cooldown bounds each cycle so runtime config changes
+                        # take effect immediately.
+                        cooldown_min = self.config.get('anti_ban.cooldown_min', 10)
+                        cooldown_max = self.config.get('anti_ban.cooldown_max', 45)
                         cooldown = random.uniform(cooldown_min, cooldown_max)
+                        # Apply ±10% jitter so the delay visibly varies even when
+                        # min and max are close together.
+                        jitter = cooldown * random.uniform(-0.1, 0.1)
+                        cooldown = max(1.0, cooldown + jitter)
                         self.logger.info(
-                            f"😴 Anti-ban cooldown: waiting {cooldown:.0f}s before next attack..."
+                            f"😴 Anti-ban cooldown: waiting {cooldown:.1f}s before next attack..."
                         )
                     else:
-                        cooldown = random.randint(5, 15)
-                        self.logger.info(f"⏳ Waiting {cooldown:.0f}s before next attack...")
+                        cooldown = random.uniform(5, 15)
+                        self.logger.info(f"⏳ Waiting {cooldown:.1f}s before next attack...")
                     cooldown_end = time.time() + cooldown
                     while self.is_running and time.time() < cooldown_end:
                         time.sleep(0.5)
@@ -442,17 +454,27 @@ class AutoAttacker:
                 )
             # Immediate post-playback check (only meaningful with pre-captured pixel).
             if initial_battle_pixel is not None:
-                current_color = self.screen_capture.get_pixel_color(
-                    home_coord['x'], home_coord['y']
-                )
-                color_diff = sum(
-                    abs(current_color[i] - initial_color[i]) for i in range(3)
-                )
-                if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD:
+                # Require _PIXEL_CONFIRM_REQUIRED consecutive reads above the
+                # threshold to avoid false positives from single-frame glitches.
+                immediate_confirm = 0
+                for _chk in range(_PIXEL_CONFIRM_REQUIRED):
+                    current_color = self.screen_capture.get_pixel_color(
+                        home_coord['x'], home_coord['y']
+                    )
+                    color_diff = sum(
+                        abs(current_color[i] - initial_color[i]) for i in range(3)
+                    )
+                    if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD:
+                        immediate_confirm += 1
+                    else:
+                        break
+                    time.sleep(0.5)
+                if immediate_confirm >= _PIXEL_CONFIRM_REQUIRED:
                     self.logger.info(
                         "🏁 Battle already ended during troop deployment!"
                     )
                     return
+            pixel_confirm_count = 0
             elapsed = 0
             while elapsed < battle_timeout and self.is_running:
                 current_color = self.screen_capture.get_pixel_color(
@@ -466,20 +488,28 @@ class AutoAttacker:
                     # minimum elapsed time needed because the baseline was taken
                     # before the battle started.
                     if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD:
-                        self.logger.info(
-                            f"🏁 Battle ended after ~{elapsed}s "
-                            f"(pixel colour change at return_home detected)"
-                        )
-                        return
+                        pixel_confirm_count += 1
+                        if pixel_confirm_count >= _PIXEL_CONFIRM_REQUIRED:
+                            self.logger.info(
+                                f"🏁 Battle ended after ~{elapsed}s "
+                                f"(pixel colour change at return_home confirmed)"
+                            )
+                            return
+                    else:
+                        pixel_confirm_count = 0
                 else:
                     # Pixel captured after playback — require minimum elapsed time
                     # to avoid false positives from brief colour changes at battle start.
                     if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD and elapsed >= _MIN_BATTLE_ELAPSED_SECS:
-                        self.logger.info(
-                            f"🏁 Battle ended after ~{elapsed}s "
-                            f"(pixel colour change at return_home detected)"
-                        )
-                        return
+                        pixel_confirm_count += 1
+                        if pixel_confirm_count >= _PIXEL_CONFIRM_REQUIRED:
+                            self.logger.info(
+                                f"🏁 Battle ended after ~{elapsed}s "
+                                f"(pixel colour change at return_home confirmed)"
+                            )
+                            return
+                    else:
+                        pixel_confirm_count = 0
                 remaining = battle_timeout - elapsed
                 self.logger.info(
                     f"⏳ Battle in progress... {remaining // 60}m {remaining % 60}s remaining"
@@ -716,13 +746,41 @@ class AutoAttacker:
         else:
             self.logger.warning("end_button not mapped - cannot retry automatically")
     
+    def _is_on_home_base(self) -> Optional[bool]:
+        """Check whether the bot is already on the home base screen.
+
+        Uses the ``return_home`` template to determine screen state:
+        * ``True``  – template not visible → already on home base.
+        * ``False`` – template visible     → still need to click Return Home.
+        * ``None``  – template file absent → cannot determine screen state.
+        """
+        if not os.path.exists(_RETURN_HOME_TEMPLATE):
+            return None
+        match = self.screen_capture.find_template_on_screen(
+            _RETURN_HOME_TEMPLATE, threshold=0.8
+        )
+        return match is None
+
     def _return_home(self) -> None:
-        """Return to home base after battle, with up to 3 click attempts."""
+        """Return to home base after battle, with up to 3 click attempts.
+
+        Before clicking, the method checks whether the return_home template
+        button is still visible on screen.  If it is not visible, the bot is
+        already on the home base and no click is needed — this avoids wasting
+        ~20 seconds clicking a position where no button exists.
+        """
         coords = self._get_coords()
         delay_variance = self.config.get('anti_ban.delay_variance', 0.3)
         click_offset = self.config.get('anti_ban.click_offset_range', 5)
 
         self.logger.info("🏠 Returning to home base...")
+
+        # If the return_home template is available, use it to check whether
+        # we are already on the home screen (button not visible → already home).
+        already_home = self._is_on_home_base()
+        if already_home is True:
+            self.logger.info("✅ Already on home base (return_home button not visible)")
+            return
 
         if 'return_home' not in coords:
             self.logger.warning("return_home button not mapped")
@@ -738,6 +796,11 @@ class AutoAttacker:
             hx, hy = humanize_click(home_coord['x'], home_coord['y'], click_offset)
             pyautogui.click(hx, hy)
             time.sleep(humanize_delay(5.0, delay_variance))
+
+            # After clicking, check if the button has disappeared (home reached).
+            if self._is_on_home_base() is True:
+                self.logger.info("✅ Returned to home base")
+                return
 
             # Give the game a moment to respond; if we're on the last attempt
             # we treat the click as successful regardless.
@@ -1014,7 +1077,12 @@ class AutoAttacker:
             'runtime_hours': runtime_hours,
             'attacks_per_hour': stats_snapshot['total_attacks'] / max(runtime_hours, 1),
             'last_attack': stats_snapshot['last_attack_time'].strftime("%H:%M:%S") if stats_snapshot['last_attack_time'] else "None",
-            'configured_sessions': self.attack_sessions.copy()
+            'configured_sessions': self.attack_sessions.copy(),
+            'total_loot': {
+                'gold': stats_snapshot['total_gold_farmed'],
+                'elixir': stats_snapshot['total_elixir_farmed'],
+                'dark_elixir': stats_snapshot['total_dark_farmed'],
+            },
         }
     
     def update_loot_requirements(self, min_gold: int = None, min_elixir: int = None, min_dark_elixir: int = None):

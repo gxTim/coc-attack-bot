@@ -121,35 +121,35 @@ class DashboardPage(ctk.CTkFrame):
 
         # Status section
         status_sec = _make_section(self, "Status")
-        status_sec.grid(row=0, column=0, padx=12, pady=(10, 4), sticky="ew")
+        status_sec.grid(row=0, column=0, padx=16, pady=(14, 6), sticky="ew")
         status_sec.columnconfigure(0, weight=1)
 
         self.status_label = ctk.CTkLabel(
             status_sec, text="IDLE", font=("", 26, "bold"), text_color=TEXT_DIM
         )
-        self.status_label.grid(row=1, column=0, pady=(2, 8))
+        self.status_label.grid(row=1, column=0, pady=(4, 10))
 
         # Loot section
         loot_sec = _make_section(self, "Loot Collected")
-        loot_sec.grid(row=1, column=0, padx=12, pady=4, sticky="ew")
+        loot_sec.grid(row=1, column=0, padx=16, pady=6, sticky="ew")
         loot_sec.columnconfigure((0, 1, 2), weight=1)
 
         self.gold_label = ctk.CTkLabel(loot_sec, text="💰 Gold\n—", font=("", 13), text_color=TEXT)
-        self.gold_label.grid(row=1, column=0, padx=8, pady=(2, 8))
+        self.gold_label.grid(row=1, column=0, padx=12, pady=(4, 12))
 
         self.elixir_label = ctk.CTkLabel(loot_sec, text="💧 Elixir\n—", font=("", 13), text_color=TEXT)
-        self.elixir_label.grid(row=1, column=1, padx=8, pady=(2, 8))
+        self.elixir_label.grid(row=1, column=1, padx=12, pady=(4, 12))
 
         self.dark_label = ctk.CTkLabel(loot_sec, text="⚫ Dark\n—", font=("", 13), text_color=TEXT)
-        self.dark_label.grid(row=1, column=2, padx=8, pady=(2, 8))
+        self.dark_label.grid(row=1, column=2, padx=12, pady=(4, 12))
 
         # Stats section
         stats_sec = _make_section(self, "Attack Stats")
-        stats_sec.grid(row=2, column=0, padx=12, pady=4, sticky="ew")
+        stats_sec.grid(row=2, column=0, padx=16, pady=6, sticky="ew")
         stats_sec.columnconfigure((0, 1), weight=1)
 
         self.attacks_label = ctk.CTkLabel(stats_sec, text="Attacks: 0  |  Success: 0%", font=("", 12), text_color=TEXT)
-        self.attacks_label.grid(row=1, column=0, columnspan=2, padx=8, pady=(2, 2))
+        self.attacks_label.grid(row=1, column=0, columnspan=2, padx=8, pady=(4, 2))
 
         self.rate_label = ctk.CTkLabel(stats_sec, text="Attacks/hour: 0", font=("", 12), text_color=TEXT)
         self.rate_label.grid(row=2, column=0, padx=8, pady=2, sticky="w")
@@ -158,7 +158,7 @@ class DashboardPage(ctk.CTkFrame):
         self.runtime_label.grid(row=2, column=1, padx=8, pady=2, sticky="e")
 
         self.last_attack_label = ctk.CTkLabel(stats_sec, text="Last attack: —", font=("", 12), text_color=TEXT_DIM)
-        self.last_attack_label.grid(row=3, column=0, columnspan=2, padx=8, pady=(2, 8))
+        self.last_attack_label.grid(row=3, column=0, columnspan=2, padx=8, pady=(2, 10))
 
     def on_show(self):
         """Called when this page is raised; starts the polling loop."""
@@ -853,7 +853,7 @@ class SettingsPage(ctk.CTkFrame):
 
         # --- Anti-Ban (left column) ---
         ab_frame = _make_section(self, "Anti-Ban")
-        ab_frame.grid(row=0, column=0, padx=(12, 6), pady=(10, 4), sticky="nsew")
+        ab_frame.grid(row=0, column=0, padx=(12, 6), pady=(12, 6), sticky="nsew")
         ab_frame.columnconfigure(1, weight=1)
 
         ctk.CTkLabel(ab_frame, text="Enable:", text_color=TEXT_DIM, font=("", 11)).grid(
@@ -927,7 +927,7 @@ class SettingsPage(ctk.CTkFrame):
 
         # --- AI Settings (right column) ---
         ai_frame = _make_section(self, "AI Settings")
-        ai_frame.grid(row=0, column=1, padx=(6, 12), pady=(10, 4), sticky="nsew")
+        ai_frame.grid(row=0, column=1, padx=(6, 12), pady=(12, 6), sticky="nsew")
         ai_frame.columnconfigure(1, weight=1)
 
         ctk.CTkLabel(ai_frame, text="API Key:", text_color=TEXT_DIM, font=("", 11)).grid(
@@ -955,7 +955,7 @@ class SettingsPage(ctk.CTkFrame):
 
         # --- Dashboard settings (right column, row 1) ---
         dash_frame = _make_section(self, "Dashboard")
-        dash_frame.grid(row=1, column=1, padx=(6, 12), pady=4, sticky="nsew")
+        dash_frame.grid(row=1, column=1, padx=(6, 12), pady=6, sticky="nsew")
         dash_frame.columnconfigure(1, weight=1)
 
         ctk.CTkLabel(dash_frame, text="Show after attack:", text_color=TEXT_DIM, font=("", 11)).grid(
@@ -978,7 +978,7 @@ class SettingsPage(ctk.CTkFrame):
 
         # --- Theme (left column, row 1) ---
         theme_frame = _make_section(self, "Theme")
-        theme_frame.grid(row=1, column=0, padx=(12, 6), pady=4, sticky="nsew")
+        theme_frame.grid(row=1, column=0, padx=(12, 6), pady=6, sticky="nsew")
         theme_frame.columnconfigure(1, weight=1)
 
         ctk.CTkLabel(theme_frame, text="Appearance:", text_color=TEXT_DIM, font=("", 11)).grid(
@@ -1123,11 +1123,12 @@ class BotGUI:
         self.content_frame.rowconfigure(0, weight=1)
 
         # Log panel (fixed height at bottom)
-        self.log_frame = ctk.CTkFrame(right_frame, height=185, corner_radius=0, fg_color=BG_SECT)
+        self.log_frame = ctk.CTkFrame(right_frame, height=150, corner_radius=0, fg_color=BG_SECT)
         self.log_frame.grid(row=1, column=0, sticky="ew")
         self.log_frame.grid_propagate(False)
         self.log_frame.columnconfigure(0, weight=1)
         self.log_frame.rowconfigure(1, weight=1)
+        self._log_expanded = True
 
     def _build_sidebar(self):
         """Populate the sidebar with icon-only navigation buttons."""
@@ -1204,6 +1205,13 @@ class BotGUI:
             command=self._clear_log,
         ).grid(row=0, column=3, padx=4)
 
+        self._log_toggle_btn = ctk.CTkButton(
+            header, text="▲", width=36, height=26,
+            fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, font=("", 11),
+            command=self._toggle_log_panel,
+        )
+        self._log_toggle_btn.grid(row=0, column=4, padx=(4, 2))
+
         # Log textbox
         self.log_textbox = ctk.CTkTextbox(
             self.log_frame,
@@ -1217,6 +1225,18 @@ class BotGUI:
         self.log_textbox.grid(row=1, column=0, sticky="nsew", padx=8, pady=(2, 6))
 
         self._log_entries: list = []
+
+    def _toggle_log_panel(self) -> None:
+        """Collapse or expand the log panel."""
+        if self._log_expanded:
+            self.log_frame.configure(height=32)
+            self.log_textbox.grid_remove()
+            self._log_toggle_btn.configure(text="▼")
+        else:
+            self.log_frame.configure(height=150)
+            self.log_textbox.grid()
+            self._log_toggle_btn.configure(text="▲")
+        self._log_expanded = not self._log_expanded
 
     def _setup_log_handler(self):
         """Connect the Logger's GUI callback to this panel."""

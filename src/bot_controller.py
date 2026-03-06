@@ -43,10 +43,17 @@ class BotController:
         
         self.logger.info("Bot Controller initialized")
     
-    def start_coordinate_mapping(self) -> None:
-        """Start the coordinate mapping mode"""
+    def start_coordinate_mapping(self, prompt_callback=None) -> None:
+        """Start the coordinate mapping mode.
+
+        Args:
+            prompt_callback: Optional callable(x, y) -> str | None forwarded
+                to :py:meth:`CoordinateMapper.start_mapping`.  When supplied
+                (GUI mode) it replaces the blocking ``input()`` call so the
+                user is prompted through a dialog instead.
+        """
         self.logger.info("Starting coordinate mapping mode")
-        self.coordinate_mapper.start_mapping()
+        self.coordinate_mapper.start_mapping(prompt_callback=prompt_callback)
     
     def start_attack_recording(self, session_name: str) -> None:
         """Start recording an attack session"""

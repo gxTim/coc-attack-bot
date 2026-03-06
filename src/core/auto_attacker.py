@@ -192,7 +192,16 @@ class AutoAttacker:
             # Step 7: Start attack recording (only after good loot found)
             session_name = self._get_next_attack_session()
             self.logger.info(f"🎯 Starting attack with session: {session_name}")
-            
+
+            # Capture pixel at return_home BEFORE playback starts so that
+            # battle-end detection can compare against the pre-battle state.
+            initial_battle_pixel = None
+            if 'return_home' in coords:
+                home_coord = coords['return_home']
+                initial_battle_pixel = self.screen_capture.get_pixel_color(
+                    home_coord['x'], home_coord['y']
+                )
+
             if not self.attack_player.play_attack(session_name, speed=1.0, auto_mode=True):
                 self.logger.error("Failed to start attack recording")
                 return False
@@ -200,7 +209,7 @@ class AutoAttacker:
             self.logger.info("✅ Attack recording started - troops deploying...")
             
             # Step 8: Wait for battle completion (detect end instead of fixed 3 min)
-            self._wait_for_battle_end()
+            self._wait_for_battle_end(initial_battle_pixel=initial_battle_pixel)
             
             # Step 9: Return home
             self._return_home()
@@ -211,7 +220,7 @@ class AutoAttacker:
             self.logger.error(f"Attack sequence failed: {e}")
             return False
     
-    def _wait_for_battle_end(self) -> None:
+    def _wait_for_battle_end(self, initial_battle_pixel=None) -> None:
         """Wait for battle to end by checking for battle-end indicators.
 
         Detection priority:
@@ -223,6 +232,13 @@ class AutoAttacker:
         The method also waits for the playback thread to finish first so that
         troop deployment is complete before we start polling (fixes race
         condition between playback and battle-end detection).
+
+        Args:
+            initial_battle_pixel: RGB tuple captured at the ``return_home``
+                coordinate BEFORE playback started.  When provided, this gives a
+                reliable pre-battle baseline so a colour change can be detected
+                immediately after playback finishes (handles the case where CoC
+                auto-returns the player to the home base during troop deployment).
         """
         battle_timeout = self.config.get('auto_attacker.battle_timeout', 180)
         poll_interval = 3  # seconds between screen checks
@@ -247,6 +263,16 @@ class AutoAttacker:
             self.logger.info(
                 f"⏳ Waiting for battle to end (polling for: {template_names})..."
             )
+            # Immediate post-playback check: battle may have ended during deployment.
+            for path, name in templates:
+                match = self.screen_capture.find_template_on_screen(
+                    path, threshold=0.8
+                )
+                if match:
+                    self.logger.info(
+                        f"🏁 Battle already ended during deployment ({name} detected)"
+                    )
+                    return
             elapsed = 0
             while elapsed < battle_timeout and self.is_running:
                 for path, name in templates:
@@ -277,9 +303,28 @@ class AutoAttacker:
                 f"for better detection place a template at "
                 f"'{_RETURN_HOME_TEMPLATE}' or '{_BATTLE_END_TEMPLATE}'..."
             )
-            initial_color = self.screen_capture.get_pixel_color(
-                home_coord['x'], home_coord['y']
-            )
+            # Use the pre-battle pixel captured before playback when available so
+            # that a colour change is detectable even if the battle ended while
+            # troops were still being deployed.
+            if initial_battle_pixel is not None:
+                initial_color = initial_battle_pixel
+            else:
+                initial_color = self.screen_capture.get_pixel_color(
+                    home_coord['x'], home_coord['y']
+                )
+            # Immediate post-playback check (only meaningful with pre-captured pixel).
+            if initial_battle_pixel is not None:
+                current_color = self.screen_capture.get_pixel_color(
+                    home_coord['x'], home_coord['y']
+                )
+                color_diff = sum(
+                    abs(current_color[i] - initial_color[i]) for i in range(3)
+                )
+                if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD:
+                    self.logger.info(
+                        "🏁 Battle already ended during troop deployment!"
+                    )
+                    return
             elapsed = 0
             while elapsed < battle_timeout and self.is_running:
                 current_color = self.screen_capture.get_pixel_color(
@@ -288,14 +333,25 @@ class AutoAttacker:
                 color_diff = sum(
                     abs(current_color[i] - initial_color[i]) for i in range(3)
                 )
-                # Require a significant colour change AND at least the minimum
-                # elapsed time to avoid false positives at battle start.
-                if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD and elapsed >= _MIN_BATTLE_ELAPSED_SECS:
-                    self.logger.info(
-                        f"🏁 Battle ended after ~{elapsed}s "
-                        f"(pixel colour change at return_home detected)"
-                    )
-                    return
+                if initial_battle_pixel is not None:
+                    # Pre-captured pixel — colour change alone is sufficient; no
+                    # minimum elapsed time needed because the baseline was taken
+                    # before the battle started.
+                    if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD:
+                        self.logger.info(
+                            f"🏁 Battle ended after ~{elapsed}s "
+                            f"(pixel colour change at return_home detected)"
+                        )
+                        return
+                else:
+                    # Pixel captured after playback — require minimum elapsed time
+                    # to avoid false positives from brief colour changes at battle start.
+                    if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD and elapsed >= _MIN_BATTLE_ELAPSED_SECS:
+                        self.logger.info(
+                            f"🏁 Battle ended after ~{elapsed}s "
+                            f"(pixel colour change at return_home detected)"
+                        )
+                        return
                 remaining = battle_timeout - elapsed
                 self.logger.info(
                     f"⏳ Battle in progress... {remaining // 60}m {remaining % 60}s remaining"

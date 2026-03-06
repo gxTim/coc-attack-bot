@@ -253,7 +253,14 @@ class AttackPlayer:
         action_type = action.get('type', '')
         x = action.get('x', 0)
         y = action.get('y', 0)
-        
+
+        # Reject coordinates that fall outside the physical screen.
+        if action_type in ('click', 'move', 'drag', 'troop_select'):
+            screen_width, screen_height = pyautogui.size()
+            if x < 0 or y < 0 or x >= screen_width or y >= screen_height:
+                print(f" ⚠️ Skipping {action_type} at ({x}, {y}) — out of screen bounds")
+                return
+
         try:
             if action_type == 'click':
                 # Validate deployment clicks against the configured deployment zone

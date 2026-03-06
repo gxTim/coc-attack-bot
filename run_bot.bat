@@ -26,9 +26,16 @@ if errorlevel 1 (
     )
 )
 
+REM Try GUI mode first, fall back to console if customtkinter is missing
 echo Starting COC Attack Bot...
 echo.
-python main.py
+python -c "import customtkinter" >nul 2>&1
+if errorlevel 1 (
+    echo customtkinter not found, starting in console mode...
+    python main.py --console
+) else (
+    start "" pythonw main.py
+)
 
 if errorlevel 1 (
     echo.
@@ -37,5 +44,5 @@ if errorlevel 1 (
 )
 
 echo.
-echo Bot has stopped.
+echo Bot has been started.
 pause 

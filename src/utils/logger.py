@@ -10,9 +10,10 @@ from typing import Callable, Optional
 class Logger:
     """Simple logging utility for the COC Attack Bot"""
     
-    def __init__(self, log_file: Optional[str] = None):
+    def __init__(self, log_file: Optional[str] = None, console_output: bool = True):
         self.log_dir = "logs"
         self._gui_callback: Optional[Callable[[str, str], None]] = None
+        self._console_output = console_output
         
         # Create logs directory
         os.makedirs(self.log_dir, exist_ok=True)
@@ -51,11 +52,12 @@ class Logger:
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
         
-        # Create console handler
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(formatter)
-        self.logger.addHandler(console_handler)
+        # Create console handler (only when console output is enabled)
+        if self._console_output:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.INFO)
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
     
     def debug(self, message: str) -> None:
         """Log debug message"""

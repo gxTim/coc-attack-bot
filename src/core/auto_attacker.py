@@ -275,11 +275,7 @@ class AutoAttacker:
         return False
 
     def _search_bases_cycle(self, coords: Dict) -> bool:
-        """Perform one complete cycle of base searching.
-        
-        Extracted from the duplicated logic that was previously in both
-        ``_find_good_loot_target`` and ``_search_for_good_base_cycle``.
-        """
+        """Perform one complete cycle of base searching."""
         max_attempts = self.max_search_attempts
         
         for attempt in range(1, max_attempts + 1):

@@ -160,7 +160,7 @@ class AttackRecorder:
                                     self._add_action('click', x, y, current_time)
                                     print(f"🖱️ Auto-recorded click at ({x}, {y}) [fallback]")
                                     self._last_click_time = current_time
-                        except Exception:
+                        except (AttributeError, TypeError):
                             if not hasattr(self, '_fallback_warned'):
                                 print("⚠️ Auto-click detection failed - use F6 to manually record clicks")
                                 self._fallback_warned = True

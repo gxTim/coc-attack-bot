@@ -10,6 +10,7 @@ import keyboard
 import threading
 from typing import Dict, List, Optional
 from .attack_recorder import AttackRecorder
+from ..utils.humanizer import humanize_click, humanize_delay
 
 try:
     import cv2
@@ -146,7 +147,7 @@ class AttackPlayer:
                 if i > 0:
                     delay = (current_timestamp - last_timestamp) / self.playback_speed
                     if delay > 0:
-                        time.sleep(delay)
+                        time.sleep(humanize_delay(delay))
                 
                 # Execute the action
                 self._execute_action(action)
@@ -267,8 +268,9 @@ class AttackPlayer:
                 if self._deployment_zone and not self._is_in_deployment_zone(x, y):
                     print(f" - ⚠️ Skipping click at ({x}, {y}): outside deployment zone")
                     return
-                pyautogui.click(x, y)
-                print(f" - Click at ({x}, {y})")
+                hx, hy = humanize_click(x, y)
+                pyautogui.click(hx, hy)
+                print(f" - Click at ({hx}, {hy})")
 
             elif action_type == 'troop_select':
                 original_slot = action.get('slot_index', 0)
@@ -277,26 +279,31 @@ class AttackPlayer:
                     new_slot = self.slot_mapping[original_slot]
                     new_x = bounds['x_start'] + new_slot * bounds['slot_width'] + bounds['slot_width'] // 2
                     new_y = y
-                    pyautogui.click(new_x, new_y)
-                    print(f" - Troop select: slot {original_slot} → slot {new_slot} at ({new_x}, {new_y})")
+                    hx, hy = humanize_click(new_x, new_y)
+                    pyautogui.click(hx, hy)
+                    print(f" - Troop select: slot {original_slot} → slot {new_slot} at ({hx}, {hy})")
                 else:
-                    pyautogui.click(x, y)
-                    print(f" - Troop select: slot {original_slot} at ({x}, {y}) (no remap)")
+                    hx, hy = humanize_click(x, y)
+                    pyautogui.click(hx, hy)
+                    print(f" - Troop select: slot {original_slot} at ({hx}, {hy}) (no remap)")
             
             elif action_type == 'move':
-                pyautogui.moveTo(x, y)
-                print(f" - Move to ({x}, {y})")
+                hx, hy = humanize_click(x, y)
+                pyautogui.moveTo(hx, hy)
+                print(f" - Move to ({hx}, {hy})")
             
             elif action_type == 'delay':
                 duration = action.get('duration', 1.0) / self.playback_speed
-                time.sleep(duration)
+                time.sleep(humanize_delay(duration))
                 print(f" - Delay {duration:.1f}s")
             
             elif action_type == 'drag':
                 start_x = action.get('start_x', x)
                 start_y = action.get('start_y', y)
-                pyautogui.drag(x - start_x, y - start_y, duration=0.5)
-                print(f" - Drag from ({start_x}, {start_y}) to ({x}, {y})")
+                hx, hy = humanize_click(x, y)
+                hsx, hsy = humanize_click(start_x, start_y)
+                pyautogui.drag(hx - hsx, hy - hsy, duration=0.5)
+                print(f" - Drag from ({hsx}, {hsy}) to ({hx}, {hy})")
             
             else:
                 print(f" - Unknown action: {action_type}")

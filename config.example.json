@@ -29,5 +29,27 @@
             "x_start": 0,
             "num_slots": 8
         }
+    },
+    "anti_ban": {
+        "enabled": true,
+        "click_offset_range": 5,
+        "delay_variance": 0.3,
+        "cooldown_min": 10,
+        "cooldown_max": 45,
+        "max_attacks_per_hour": 20,
+        "max_attacks_per_session": 100,
+        "break_every_n_attacks": 10,
+        "break_duration_min": 120,
+        "break_duration_max": 300
+    },
+    "dashboard": {
+        "show_after_each_attack": true,
+        "save_session_stats": true,
+        "stats_directory": "logs"
+    },
+    "strategy_selection": {
+        "enabled": true,
+        "use_ai": true,
+        "strategies": {}
     }
 }

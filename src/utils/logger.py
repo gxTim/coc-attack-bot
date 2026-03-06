@@ -36,12 +36,13 @@ class Logger:
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         
-        # Create logger
-        self.logger = logging.getLogger('COCBot')
+        # Use a unique logger name per instance to avoid handler duplication
+        # when multiple Logger objects are created in the same process.
+        self.logger = logging.getLogger(f'COCBot.{id(self)}')
         self.logger.setLevel(logging.DEBUG)
-        
-        # Clear any existing handlers
-        self.logger.handlers.clear()
+        # Propagation to the root logger is disabled so that duplicate
+        # messages are not produced by ancestor handlers.
+        self.logger.propagate = False
         
         # Create file handler
         file_handler = logging.FileHandler(self.log_file, encoding='utf-8')

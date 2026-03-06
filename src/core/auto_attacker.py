@@ -18,8 +18,20 @@ from .ai_analyzer import AIAnalyzer
 from ..utils.logger import Logger
 from ..utils.config import Config
 
-# Path to battle-end template image (e.g. the "Return Home" button that appears when a battle ends)
+# Template images used for battle-end detection.
+# Place either or both in the `templates/` directory for early battle-end detection.
 _BATTLE_END_TEMPLATE = os.path.join("templates", "battle_end.png")
+_RETURN_HOME_TEMPLATE = os.path.join("templates", "return_home.png")
+
+# Pixel-colour change threshold used by the return_home heuristic detector.
+# A cumulative RGB-channel delta above this value is considered a significant
+# colour change indicating that the "Return Home" button has appeared.
+_PIXEL_COLOR_DIFF_THRESHOLD = 30
+
+# Minimum seconds elapsed before the pixel-colour heuristic will declare the
+# battle finished.  This prevents false positives caused by brief colour
+# changes that can occur at the very start of the battle.
+_MIN_BATTLE_ELAPSED_SECS = 30
 
 
 class AutoAttacker:
@@ -36,6 +48,7 @@ class AutoAttacker:
         
         self.is_running = False
         self.auto_thread = None
+        self._stats_lock = threading.Lock()
         self.stats = {
             'total_attacks': 0,
             'successful_attacks': 0,
@@ -133,14 +146,17 @@ class AutoAttacker:
                 
                 # Execute attack sequence
                 if self._execute_attack_sequence():
-                    self.stats['successful_attacks'] += 1
+                    with self._stats_lock:
+                        self.stats['successful_attacks'] += 1
                     self.logger.info("✅ Attack sequence completed successfully")
                 else:
-                    self.stats['failed_attacks'] += 1
+                    with self._stats_lock:
+                        self.stats['failed_attacks'] += 1
                     self.logger.warning("❌ Attack sequence failed")
                 
-                self.stats['total_attacks'] += 1
-                self.stats['last_attack_time'] = datetime.now()
+                with self._stats_lock:
+                    self.stats['total_attacks'] += 1
+                    self.stats['last_attack_time'] = datetime.now()
                 
                 # Short break between attacks
                 if self.is_running:
@@ -196,48 +212,114 @@ class AutoAttacker:
             return False
     
     def _wait_for_battle_end(self) -> None:
-        """Wait for battle to end by checking for the battle-end indicator.
-        
-        If a battle_end template image exists, polls for it every 5 seconds
-        so the bot can proceed as soon as the battle finishes instead of
-        always waiting the full 3 minutes.  Falls back to a fixed 180 s
-        wait when the template is not available.
+        """Wait for battle to end by checking for battle-end indicators.
+
+        Detection priority:
+        1. ``templates/battle_end.png`` – template match on screen.
+        2. ``templates/return_home.png`` – template match on screen.
+        3. ``return_home`` coordinate – pixel-colour change heuristic.
+        4. Fixed timeout (configurable via ``auto_attacker.battle_timeout``).
+
+        The method also waits for the playback thread to finish first so that
+        troop deployment is complete before we start polling (fixes race
+        condition between playback and battle-end detection).
         """
-        battle_timeout = 180  # 3 minutes max
-        poll_interval = 5     # seconds between checks
+        battle_timeout = self.config.get('auto_attacker.battle_timeout', 180)
+        poll_interval = 3  # seconds between screen checks
 
-        has_template = os.path.exists(_BATTLE_END_TEMPLATE)
+        # Step 1: Wait for troop deployment (playback) to finish.
+        if (self.attack_player.playback_thread
+                and self.attack_player.playback_thread.is_alive()):
+            self.logger.info("⏳ Waiting for troop deployment to complete...")
+            self.attack_player.playback_thread.join(timeout=battle_timeout)
 
-        if has_template:
-            self.logger.info("⏳ Waiting for battle to end (polling for end indicator)...")
+        # Step 2: Determine which templates are available.
+        has_battle_end = os.path.exists(_BATTLE_END_TEMPLATE)
+        has_return_home_tmpl = os.path.exists(_RETURN_HOME_TEMPLATE)
+
+        if has_battle_end or has_return_home_tmpl:
+            templates = []
+            if has_battle_end:
+                templates.append((_BATTLE_END_TEMPLATE, "battle_end"))
+            if has_return_home_tmpl:
+                templates.append((_RETURN_HOME_TEMPLATE, "return_home"))
+            template_names = ", ".join(name for _, name in templates)
+            self.logger.info(
+                f"⏳ Waiting for battle to end (polling for: {template_names})..."
+            )
             elapsed = 0
             while elapsed < battle_timeout and self.is_running:
-                # Check if battle-end indicator is visible on screen
-                match = self.screen_capture.find_template_on_screen(
-                    _BATTLE_END_TEMPLATE, threshold=0.8
-                )
-                if match:
-                    self.logger.info(f"🏁 Battle ended after ~{elapsed}s (end indicator detected)")
-                    return
+                for path, name in templates:
+                    match = self.screen_capture.find_template_on_screen(
+                        path, threshold=0.8
+                    )
+                    if match:
+                        self.logger.info(
+                            f"🏁 Battle ended after ~{elapsed}s ({name} detected)"
+                        )
+                        return
                 remaining = battle_timeout - elapsed
                 self.logger.info(
                     f"⏳ Battle in progress... ~{remaining // 60}m {remaining % 60}s remaining"
                 )
                 time.sleep(poll_interval)
                 elapsed += poll_interval
-            self.logger.info("⏳ Battle timeout reached (180s)")
-        else:
+            self.logger.info(f"⏳ Battle timeout reached ({battle_timeout}s)")
+            return
+
+        # Step 3: No templates – try pixel-colour check at the return_home button.
+        coords = self._get_coords()
+        if 'return_home' in coords:
+            home_coord = coords['return_home']
             self.logger.info(
-                "⏳ Waiting 3 minutes for battle completion "
-                f"(place a template at '{_BATTLE_END_TEMPLATE}' for early detection)..."
+                f"⏳ Polling for battle end using return_home pixel check at "
+                f"({home_coord['x']}, {home_coord['y']}) — "
+                f"for better detection place a template at "
+                f"'{_RETURN_HOME_TEMPLATE}' or '{_BATTLE_END_TEMPLATE}'..."
             )
-            for remaining in range(battle_timeout, 0, -10):
-                if not self.is_running:
-                    break
+            initial_color = self.screen_capture.get_pixel_color(
+                home_coord['x'], home_coord['y']
+            )
+            elapsed = 0
+            while elapsed < battle_timeout and self.is_running:
+                current_color = self.screen_capture.get_pixel_color(
+                    home_coord['x'], home_coord['y']
+                )
+                color_diff = sum(
+                    abs(current_color[i] - initial_color[i]) for i in range(3)
+                )
+                # Require a significant colour change AND at least the minimum
+                # elapsed time to avoid false positives at battle start.
+                if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD and elapsed >= _MIN_BATTLE_ELAPSED_SECS:
+                    self.logger.info(
+                        f"🏁 Battle ended after ~{elapsed}s "
+                        f"(pixel colour change at return_home detected)"
+                    )
+                    return
+                remaining = battle_timeout - elapsed
                 self.logger.info(
                     f"⏳ Battle in progress... {remaining // 60}m {remaining % 60}s remaining"
                 )
-                time.sleep(10)
+                time.sleep(poll_interval)
+                elapsed += poll_interval
+            self.logger.info(f"⏳ Battle timeout reached ({battle_timeout}s)")
+            return
+
+        # Step 4: Absolute fallback – no templates and no coordinate mapped.
+        self.logger.warning(
+            f"⚠️ No battle-end templates or return_home coordinate found. "
+            f"Falling back to {battle_timeout}s wait. "
+            f"Place a template at '{_RETURN_HOME_TEMPLATE}' or "
+            f"'{_BATTLE_END_TEMPLATE}' for early battle-end detection."
+        )
+        elapsed = 0
+        while elapsed < battle_timeout and self.is_running:
+            remaining = battle_timeout - elapsed
+            self.logger.info(
+                f"⏳ Battle in progress... {remaining // 60}m {remaining % 60}s remaining"
+            )
+            time.sleep(poll_interval)
+            elapsed += poll_interval
 
     def _click_attack_confirm_button(self) -> bool:
         """Click the green attack confirm button that appears after find_a_match (new CoC update)"""
@@ -282,19 +364,29 @@ class AutoAttacker:
             if not self.is_running:
                 return False
             
-            # Click find_a_match
-            find_coord = coords['find_a_match']
-            self.logger.info(
-                f"2️⃣ Clicking find_a_match at ({find_coord['x']}, {find_coord['y']}) "
-                f"- Attempt {attempt}/{max_attempts}"
-            )
-            pyautogui.click(find_coord['x'], find_coord['y'])
-            time.sleep(2)  # Wait for confirm button to appear
-            
-            # Click the green attack confirm button (new CoC update)
-            if not self._click_attack_confirm_button():
-                self.logger.error("Failed to click attack confirm button")
-                return False
+            if attempt == 1:
+                # First attempt: open matchmaking and confirm.
+                find_coord = coords['find_a_match']
+                self.logger.info(
+                    f"2️⃣ Clicking find_a_match at ({find_coord['x']}, {find_coord['y']}) "
+                    f"- Attempt {attempt}/{max_attempts}"
+                )
+                pyautogui.click(find_coord['x'], find_coord['y'])
+                time.sleep(2)  # Wait for confirm button to appear
+                
+                # Click the green attack confirm button (new CoC update)
+                if not self._click_attack_confirm_button():
+                    self.logger.error("Failed to click attack confirm button")
+                    return False
+            else:
+                # Subsequent attempts: already in the base-browsing view,
+                # so just click Next to see the next available base.
+                self.logger.info(
+                    f"2️⃣ Skipping to next base - Attempt {attempt}/{max_attempts}"
+                )
+                next_coord = coords['next_button']
+                pyautogui.click(next_coord['x'], next_coord['y'])
+                time.sleep(3)
             
             # Wait for base to load
             self.logger.info("3️⃣ Waiting for base to load...")
@@ -321,11 +413,7 @@ class AutoAttacker:
                 self.logger.info("✅ Base is good! Proceeding with attack!")
                 return True
             
-            # Bad base, click next
-            self.logger.info("❌ Base not suitable. Clicking next...")
-            next_coord = coords['next_button']
-            pyautogui.click(next_coord['x'], next_coord['y'])
-            time.sleep(3)
+            self.logger.info("❌ Base not suitable. Moving to next base...")
         
         self.logger.warning(f"Could not find good loot after {max_attempts} attempts")
         return False
@@ -351,61 +439,41 @@ class AutoAttacker:
         
         self.logger.info(f"🔍 AI Extracted Loot: Gold={extracted_gold:,}, Elixir={extracted_elixir:,}, Dark={extracted_dark:,}")
         self.logger.info(f"🏰 Town Hall Level: {townhall_level}")
-        self.logger.info(f"📋 Requirements: Gold={min_gold:,}, Elixir={min_elixir:,}, Dark={min_dark:,}, Max TH=12")
+        max_th_level = self.config.get('auto_attacker.max_th_level', 12)
+        self.logger.info(f"📋 Requirements: Gold={min_gold:,}, Elixir={min_elixir:,}, Dark={min_dark:,}, Max TH={max_th_level}")
         
         # Check loot requirements
         gold_ok = extracted_gold >= min_gold
         elixir_ok = extracted_elixir >= min_elixir
         dark_ok = extracted_dark >= min_dark
-        th_ok = townhall_level <= 12
+        th_ok = townhall_level <= max_th_level
         
         self.logger.info(f"✅/❌ Meets Requirements: Gold={gold_ok}, Elixir={elixir_ok}, Dark={dark_ok}, TH_Level={th_ok}")
         
         # Override AI decision if Town Hall is too high
-        if townhall_level > 12:
-            self.logger.info(f"❌ Overriding AI: Town Hall {townhall_level} is too strong (max allowed: 12)")
+        if townhall_level > max_th_level:
+            self.logger.info(f"❌ Overriding AI: Town Hall {townhall_level} is too strong (max allowed: {max_th_level})")
             return False
 
         recommendation = analysis.get("recommendation", "SKIP").upper()
         return recommendation == "ATTACK"
 
     def _check_loot(self) -> bool:
-        """Check if enemy base has good loot"""
-        coords = self._get_coords()
-        
-        # Check each loot type
-        loot_checks = {
-            'gold': ('enemy_gold', self.config.get('ai_analyzer.min_gold', 300000)),
-            'elixir': ('enemy_elixir', self.config.get('ai_analyzer.min_elixir', 300000)),
-            'dark': ('enemy_dark_elixir', self.config.get('ai_analyzer.min_dark_elixir', 5000))
-        }
-        
-        good_loot_count = 0
-        
-        for loot_name, (coord_name, min_value) in loot_checks.items():
-            if coord_name in coords:
-                coord = coords[coord_name]
-                self.logger.info(f"Checking {loot_name} at ({coord['x']}, {coord['y']})")
-                
-                # Simple check - in real game you'd use OCR here
-                # For now, assume good loot (you can implement OCR later)
-                has_good_loot = True  # Placeholder
-                
-                if has_good_loot:
-                    good_loot_count += 1
-                    self.logger.info(f"✅ {loot_name.capitalize()}: Good")
-                else:
-                    self.logger.info(f"❌ {loot_name.capitalize()}: Too low")
-        
-        # Require at least 2 out of 3 loot types to be good
-        is_good = good_loot_count >= 2
-        
-        if is_good:
-            self.logger.info(f"✅ Loot check PASSED - {good_loot_count}/3 loot types are good")
-        else:
-            self.logger.info(f"❌ Loot check FAILED - Only {good_loot_count}/3 loot types are good")
-        
-        return is_good
+        """Check if enemy base has good loot.
+
+        Simple OCR-based loot reading is not yet implemented.  This method
+        logs a warning and returns ``False`` so that the bot skips the base
+        rather than blindly attacking every one it encounters.  Enable AI
+        analysis (``ai_analyzer.enabled = true`` in config) for automatic
+        loot detection.
+        """
+        self.logger.warning(
+            "⚠️ Simple loot check: OCR is not implemented. "
+            "Returning False (SKIP) to avoid attacking every base. "
+            "Enable AI analysis via 'ai_analyzer.enabled' in config.json for "
+            "automatic loot detection."
+        )
+        return False
     
     def _click_end_button_and_retry(self) -> None:
         """Click end button when Town Hall is not detected and retry"""
@@ -447,21 +515,24 @@ class AutoAttacker:
     
     def get_stats(self) -> Dict:
         """Get automation statistics"""
-        if self.stats['start_time']:
-            runtime = datetime.now() - self.stats['start_time']
+        with self._stats_lock:
+            stats_snapshot = self.stats.copy()
+
+        if stats_snapshot['start_time']:
+            runtime = datetime.now() - stats_snapshot['start_time']
             runtime_hours = runtime.total_seconds() / 3600
         else:
             runtime_hours = 0
         
         return {
             'is_running': self.is_running,
-            'total_attacks': self.stats['total_attacks'],
-            'successful_attacks': self.stats['successful_attacks'],
-            'failed_attacks': self.stats['failed_attacks'],
-            'success_rate': (self.stats['successful_attacks'] / max(self.stats['total_attacks'], 1)) * 100,
+            'total_attacks': stats_snapshot['total_attacks'],
+            'successful_attacks': stats_snapshot['successful_attacks'],
+            'failed_attacks': stats_snapshot['failed_attacks'],
+            'success_rate': (stats_snapshot['successful_attacks'] / max(stats_snapshot['total_attacks'], 1)) * 100,
             'runtime_hours': runtime_hours,
-            'attacks_per_hour': self.stats['total_attacks'] / max(runtime_hours, 1),
-            'last_attack': self.stats['last_attack_time'].strftime("%H:%M:%S") if self.stats['last_attack_time'] else "None",
+            'attacks_per_hour': stats_snapshot['total_attacks'] / max(runtime_hours, 1),
+            'last_attack': stats_snapshot['last_attack_time'].strftime("%H:%M:%S") if stats_snapshot['last_attack_time'] else "None",
             'configured_sessions': self.attack_sessions.copy()
         }
     

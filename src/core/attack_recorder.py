@@ -128,8 +128,8 @@ class AttackRecorder:
                         time.sleep(0.1)
                 
                 if keyboard.is_pressed('f7'):
-                    # Add delay marker
-                    delay = float(input("\nEnter delay in seconds: ") or "1.0")
+                    # Add delay marker using a fixed default to avoid blocking the thread
+                    delay = 1.0
                     self._add_action('delay', 0, 0, current_time, {'duration': delay})
                     print(f"Added {delay}s delay")
                     

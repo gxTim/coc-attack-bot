@@ -13,8 +13,8 @@ from .attack_recorder import AttackRecorder
 class AttackPlayer:
     """Plays back recorded attack sessions"""
     
-    def __init__(self):
-        self.attack_recorder = AttackRecorder()
+    def __init__(self, attack_recorder: Optional[AttackRecorder] = None):
+        self.attack_recorder = attack_recorder if attack_recorder is not None else AttackRecorder()
         self.is_playing = False
         self.current_playback = None
         self.playback_thread = None

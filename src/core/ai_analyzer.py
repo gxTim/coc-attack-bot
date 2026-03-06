@@ -18,35 +18,11 @@ class AIAnalyzer:
         self.logger = logger
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite-preview-06-17:generateContent"
         
-        # Analysis prompt template
-        self.analysis_prompt = """
-You are an expert Clash of Clans player analyzing enemy bases for attack decisions.
-
-Analyze this screenshot and provide:
-1. Loot amounts (Gold, Elixir, Dark Elixir) - estimate the visible amounts
-2. Town Hall level (1-12)
-3. Base difficulty assessment (Easy/Medium/Hard)
-4. Attack recommendation (ATTACK or SKIP)
-
-Consider these factors:
-- Loot amounts: Good loot = 300k+ gold/elixir, 2k+ dark elixir
-- Town Hall level: Prefer similar or lower level bases
-- Base layout: Look for weak spots, exposed defenses
-- Risk vs reward: High loot with reasonable difficulty = ATTACK
-
-Respond in this exact JSON format:
-{
-    "loot": {
-        "gold": estimated_gold_amount,
-        "elixir": estimated_elixir_amount,
-        "dark_elixir": estimated_dark_elixir_amount
-    },
-    "townhall_level": town_hall_level_number,
-    "difficulty": "Easy/Medium/Hard",
-    "recommendation": "ATTACK/SKIP",
-    "reasoning": "Brief explanation of decision"
-}
-"""
+        if not self.api_key:
+            self.logger.warning(
+                "⚠️ AI Analyzer: No API key provided. "
+                "Set 'ai_analyzer.google_gemini_api_key' in config.json or disable AI analysis."
+            )
     
     def analyze_base(self, screenshot_path: str, min_gold: int = 300000, 
                     min_elixir: int = 300000, min_dark: int = 2000) -> Dict:
@@ -64,6 +40,9 @@ Respond in this exact JSON format:
         """
         try:
             self.logger.info(f"🤖 Analyzing base with AI: {screenshot_path}")
+            
+            if not self.api_key:
+                return self._create_error_response("No API key configured")
             
             # Encode image to base64
             image_data = self._encode_image(screenshot_path)

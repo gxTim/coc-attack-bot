@@ -7,10 +7,11 @@ import time
 import sys
 import os
 
-# Add the src directory to the path so we can import our modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# Add the project root to the path so that the `src` package can be imported
+# with its relative imports intact.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from bot_controller import BotController
+from src.bot_controller import BotController
 
 def example_coordinate_mapping():
     """Example of programmatic coordinate mapping"""

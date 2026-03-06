@@ -2,8 +2,6 @@
 Bot Controller - Main logic controller for COC Attack Bot
 """
 
-import time
-import json
 from typing import Dict, List, Optional, Tuple
 from .core.screen_capture import ScreenCapture
 from .core.coordinate_mapper import CoordinateMapper
@@ -23,7 +21,7 @@ class BotController:
         self.screen_capture = ScreenCapture()
         self.coordinate_mapper = CoordinateMapper()
         self.attack_recorder = AttackRecorder()
-        self.attack_player = AttackPlayer()
+        self.attack_player = AttackPlayer(attack_recorder=self.attack_recorder)
         self.ai_analyzer = AIAnalyzer(
             api_key=self.config.get("ai_analyzer.google_gemini_api_key", ""),
             logger=self.logger
@@ -83,7 +81,15 @@ class BotController:
     def start_auto_attack(self, attack_sessions: List[str], min_gold: int = 100000, min_elixir: int = 100000, 
                           min_dark_elixir: int = 1000) -> None:
         """Start automated continuous attacks"""
-        # Start automation
+        # Apply the caller-supplied sessions and loot thresholds before starting.
+        if attack_sessions:
+            self.auto_attacker.attack_sessions = list(attack_sessions)
+            self.config.set('auto_attacker.attack_sessions', list(attack_sessions))
+        self.auto_attacker.update_loot_requirements(
+            min_gold=min_gold,
+            min_elixir=min_elixir,
+            min_dark_elixir=min_dark_elixir,
+        )
         self.auto_attacker.start_auto_attack()
     
     def stop_auto_attack(self) -> None:

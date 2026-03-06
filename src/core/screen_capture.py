@@ -10,7 +10,6 @@ import os
 from typing import Optional, Tuple, List
 from datetime import datetime
 import win32gui
-import win32con
 
 class ScreenCapture:
     """Handles screen capture and game window detection"""

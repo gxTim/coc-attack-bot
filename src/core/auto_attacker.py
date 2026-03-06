@@ -185,12 +185,30 @@ class AutoAttacker:
             self.logger.error(f"Attack sequence failed: {e}")
             return False
     
+    def _click_attack_confirm_button(self) -> bool:
+        """Click the green attack confirm button that appears after find_a_match (new CoC update)"""
+        coords = self.coordinate_mapper.get_coordinates()
+        
+        if 'attack_confirm_button' not in coords:
+            self.logger.error("attack_confirm_button not mapped - this button is required since the latest CoC update")
+            return False
+        
+        confirm_coord = coords['attack_confirm_button']
+        self.logger.info(f"⚔️ Clicking attack_confirm_button at ({confirm_coord['x']}, {confirm_coord['y']})")
+        pyautogui.click(confirm_coord['x'], confirm_coord['y'])
+        time.sleep(3)  # Wait for matchmaking to find a base
+        return True
+
     def _find_good_loot_target(self) -> bool:
         """Find target with good loot following exact process"""
         coords = self.coordinate_mapper.get_coordinates()
         
         if 'find_a_match' not in coords:
             self.logger.error("find_a_match button not mapped")
+            return False
+        
+        if 'attack_confirm_button' not in coords:
+            self.logger.error("attack_confirm_button not mapped - required since latest CoC update")
             return False
         
         if 'next_button' not in coords:
@@ -207,12 +225,18 @@ class AutoAttacker:
             find_coord = coords['find_a_match']
             self.logger.info(f"2️⃣ Clicking find_a_match at ({find_coord['x']}, {find_coord['y']}) - Attempt {search_attempts}/{max_attempts}")
             pyautogui.click(find_coord['x'], find_coord['y'])
+            time.sleep(2)  # Wait for confirm button to appear
             
-            # Step 3: Wait 5 seconds
+            # Step 3: Click the green attack confirm button (new CoC update)
+            if not self._click_attack_confirm_button():
+                self.logger.error("Failed to click attack confirm button")
+                return False
+            
+            # Step 4: Wait for base to load
             self.logger.info("3️⃣ Waiting 5 seconds for base to load...")
             time.sleep(5)
             
-            # Step 4: Check loot
+            # Step 5: Check loot
             screenshot_path = self.screen_capture.capture_game_screen()
             if not screenshot_path:
                 self.logger.warning("Could not take screenshot, skipping base...")
@@ -233,7 +257,7 @@ class AutoAttacker:
                 self.logger.info("✅ Base is good! Proceeding with attack!")
                 return True
             else:
-                # Step 5: Bad loot or AI said SKIP, click next
+                # Step 6: Bad loot or AI said SKIP, click next
                 self.logger.info("❌ Base not suitable. Clicking next...")
                 if 'next_button' in coords:
                     next_coord = coords['next_button']
@@ -261,6 +285,10 @@ class AutoAttacker:
             self.logger.error("Required buttons not mapped for base search")
             return False
         
+        if 'attack_confirm_button' not in coords:
+            self.logger.error("attack_confirm_button not mapped - required since latest CoC update")
+            return False
+        
         search_attempts = 0
         max_attempts = self.max_search_attempts
         
@@ -271,6 +299,12 @@ class AutoAttacker:
             find_coord = coords['find_a_match']
             self.logger.info(f"2️⃣ Clicking find_a_match at ({find_coord['x']}, {find_coord['y']}) - Attempt {search_attempts}/{max_attempts}")
             pyautogui.click(find_coord['x'], find_coord['y'])
+            time.sleep(2)  # Wait for confirm button to appear
+            
+            # Click the green attack confirm button (new CoC update)
+            if not self._click_attack_confirm_button():
+                self.logger.error("Failed to click attack confirm button")
+                return False
             
             # Wait for base to load
             self.logger.info("3️⃣ Waiting 5 seconds for base to load...")
@@ -456,11 +490,10 @@ class AutoAttacker:
         return {
             'attack': 'Main attack button on home screen',
             'find_a_match': 'Find match/search button in attack screen',
+            'attack_confirm_button': 'Green attack confirm button after find_a_match (new CoC update)',
             'next_button': 'Next button to skip bases with low loot',
             'return_home': 'Return home button after battle completion',
             'enemy_gold': 'Enemy gold display for loot checking',
             'enemy_elixir': 'Enemy elixir display for loot checking',
             'enemy_dark_elixir': 'Enemy dark elixir display for loot checking'
         }
-    
- 

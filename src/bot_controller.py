@@ -20,8 +20,10 @@ class BotController:
         self.config = Config()
         self.screen_capture = ScreenCapture()
         self.coordinate_mapper = CoordinateMapper()
-        self.attack_recorder = AttackRecorder()
-        self.attack_player = AttackPlayer(attack_recorder=self.attack_recorder)
+        troop_bar_cfg = self.config.get('auto_attacker.troop_bar', {})
+        self.attack_recorder = AttackRecorder(troop_bar_config=troop_bar_cfg)
+        self.attack_player = AttackPlayer(attack_recorder=self.attack_recorder,
+                                          troop_bar_config=troop_bar_cfg)
         self.ai_analyzer = AIAnalyzer(
             api_key=self.config.get("ai_analyzer.google_gemini_api_key", ""),
             logger=self.logger,
@@ -125,6 +127,11 @@ class BotController:
         """Save button coordinates mapping"""
         self.coordinate_mapper.save_coordinates(name, coordinates)
     
+    def update_troop_bar_config(self, cfg: Dict) -> None:
+        """Push an updated troop bar config dict to the recorder and player."""
+        self.attack_recorder.set_troop_bar_config(cfg)
+        self.attack_player.set_troop_bar_config(cfg)
+
     def detect_game_window(self) -> Optional[Tuple[int, int, int, int]]:
         """Detect and return COC game window bounds"""
         return self.screen_capture.find_game_window()

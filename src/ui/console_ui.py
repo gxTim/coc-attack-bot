@@ -5,6 +5,8 @@ Console UI - Command-line interface for the COC Attack Bot
 import sys
 import os
 import time
+import pyautogui
+import keyboard
 from typing import Optional
 from ..bot_controller import BotController
 
@@ -107,7 +109,8 @@ class ConsoleUI:
             print("3. Stop Auto Attack")
             print("4. View Statistics")
             print("5. Configure Required Buttons")
-            print("6. Back to main menu")
+            print("6. Calibrate Troop Bar")
+            print("7. Back to main menu")
             print("=" * 40)
             
             choice = input("Enter your choice: ").strip()
@@ -123,6 +126,8 @@ class ConsoleUI:
             elif choice == '5':
                 self.configure_auto_attack_buttons()
             elif choice == '6':
+                self._calibrate_troop_bar()
+            elif choice == '7':
                 break
             else:
                 print("Invalid choice.")
@@ -226,6 +231,15 @@ class ConsoleUI:
         # Final Configuration Summary
         self.bot.config.set('auto_attacker.attack_sessions', selected_sessions)
         self.bot.auto_attacker.attack_sessions = selected_sessions
+
+        # Prompt to calibrate troop bar if not done yet
+        if not self.bot.config.get('auto_attacker.troop_bar.calibrated', False):
+            print("\n⚠️ Troop bar has not been calibrated for your screen!")
+            print("This is required for correct troop slot remapping.")
+            response = input("Calibrate now? (y/n): ").strip().lower()
+            if response == 'y':
+                self._calibrate_troop_bar()
+
         self.bot.config.save_config()
         
         print("\n" + "=" * 40)
@@ -674,4 +688,80 @@ SAFETY:
 - Always supervise bot operation
 - Use at your own risk
         """)
+        input("\nPress Enter to continue...")
+
+    # ------------------------------------------------------------------
+    # Troop bar calibration helpers
+    # ------------------------------------------------------------------
+
+    def _wait_for_f2(self):
+        """Block until the user presses F2 and return the current mouse position."""
+        while True:
+            if keyboard.is_pressed('f2'):
+                x, y = pyautogui.position()
+                # Wait for key release to avoid double-triggering
+                while keyboard.is_pressed('f2'):
+                    time.sleep(0.05)
+                return x, y
+            time.sleep(0.05)
+
+    def _calibrate_troop_bar(self) -> None:
+        """Interactive wizard to calibrate the troop bar position for this screen."""
+
+        print("\n" + "=" * 50)
+        print("       TROOP BAR CALIBRATION")
+        print("=" * 50)
+        print("This will calibrate the troop bar position for your screen.")
+        print("Make sure you are on the ATTACK SCREEN with troops visible!\n")
+
+        print("Step 1: Move your mouse to the CENTER of the FIRST (leftmost) troop slot")
+        print("Press F2 when ready...")
+        first_x, first_y = self._wait_for_f2()
+        print(f"  ✅ First slot center: ({first_x}, {first_y})")
+
+        print("\nStep 2: Move your mouse to the CENTER of the LAST (rightmost) troop slot")
+        print("Press F2 when ready...")
+        last_x, last_y = self._wait_for_f2()
+        print(f"  ✅ Last slot center: ({last_x}, {last_y})")
+
+        # Ask for number of slots
+        try:
+            num_slots_input = input("\nHow many troop slots are visible? (default: 8): ").strip()
+            num_slots = int(num_slots_input) if num_slots_input else 8
+            if num_slots < 2:
+                print("  ⚠️ Number of slots must be at least 2. Using default of 8.")
+                num_slots = 8
+        except ValueError:
+            num_slots = 8
+
+        # Calculate troop bar geometry from the two anchor points
+        total_center_span = last_x - first_x
+        slot_width = max(1, total_center_span // (num_slots - 1))
+
+        x_start = first_x - slot_width // 2
+
+        _, screen_height = pyautogui.size()
+        # Approximate top of the slot region using average y of the two recorded points
+        avg_y = (first_y + last_y) // 2
+        slot_half_height = 30  # approximate half-height of a slot icon
+        y_min = max(0, avg_y - slot_half_height)
+        y_min_offset = screen_height - y_min
+
+        # Persist to config
+        self.bot.config.set('auto_attacker.troop_bar.x_start', x_start)
+        self.bot.config.set('auto_attacker.troop_bar.slot_width', slot_width)
+        self.bot.config.set('auto_attacker.troop_bar.y_min_offset', y_min_offset)
+        self.bot.config.set('auto_attacker.troop_bar.num_slots', num_slots)
+        self.bot.config.set('auto_attacker.troop_bar.calibrated', True)
+        self.bot.config.save_config()
+
+        # Push updated config to recorder and player
+        troop_bar_cfg = self.bot.config.get('auto_attacker.troop_bar', {})
+        self.bot.update_troop_bar_config(troop_bar_cfg)
+
+        print(f"\n✅ Troop bar calibrated!")
+        print(f"  Slots:      {num_slots}")
+        print(f"  Slot width: {slot_width}px")
+        print(f"  X start:    {x_start}px")
+        print(f"  Y offset:   {y_min_offset}px (y_min={y_min})")
         input("\nPress Enter to continue...") 

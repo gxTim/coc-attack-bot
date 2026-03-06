@@ -186,6 +186,11 @@ class AttackRecorder:
             print(f"Recording error: {e}")
             self.is_recording = False
     
+    def set_troop_bar_config(self, cfg: Dict) -> None:
+        """Update the troop bar configuration and reset the one-shot warning flag."""
+        self._troop_bar_config = cfg
+        self._config_warned = False
+
     def toggle_auto_click_detection(self) -> bool:
         """Toggle auto-click detection on/off"""
         self.auto_detect_clicks = not self.auto_detect_clicks
@@ -197,21 +202,67 @@ class AttackRecorder:
         """Get troop bar region bounds, resolved against current screen size."""
         screen_width, screen_height = pyautogui.size()
         cfg = self._troop_bar_config
-        y_min_offset = cfg.get('y_min_offset', 120)
+
+        if cfg.get('calibrated', False):
+            # Use values saved by the calibration wizard
+            y_min_offset = cfg.get('y_min_offset', max(100, int(screen_height * 0.08)))
+            num_slots = cfg.get('num_slots', 8)
+            slot_width = cfg.get('slot_width', 70)
+            x_start = cfg.get('x_start', 0)
+            return {
+                'y_min': screen_height - y_min_offset,
+                'y_max': screen_height,
+                'x_start': x_start,
+                'x_end': x_start + num_slots * slot_width,
+                'slot_width': slot_width,
+                'num_slots': num_slots,
+            }
+
+        # Smart defaults based on screen resolution when not yet calibrated.
+        # The CoC troop bar is roughly in the bottom ~8 % of the screen and
+        # spans about 45 % of the screen width centred horizontally.
+        y_min_offset = cfg.get('y_min_offset', max(100, int(screen_height * 0.08)))
+        num_slots = cfg.get('num_slots', 8)
+        estimated_bar_width = max(1, int(screen_width * 0.45))
+        slot_width = cfg.get('slot_width', estimated_bar_width // max(num_slots, 1))
+        # Only use the stored x_start when it is non-zero (i.e. deliberately set);
+        # otherwise centre the estimated bar on the screen.
+        stored_x_start = cfg.get('x_start', 0)
+        x_start = stored_x_start if stored_x_start != 0 else (screen_width - estimated_bar_width) // 2
         return {
             'y_min': screen_height - y_min_offset,
             'y_max': screen_height,
-            'x_start': cfg.get('x_start', 0),
-            'x_end': screen_width,
-            'slot_width': cfg.get('slot_width', 70),
-            'num_slots': cfg.get('num_slots', 8),
+            'x_start': x_start,
+            'x_end': x_start + num_slots * slot_width,
+            'slot_width': slot_width,
+            'num_slots': num_slots,
         }
+
+    def _validate_troop_bar_config(self) -> None:
+        """Warn once if the troop bar config looks wrong for the current screen resolution."""
+        if getattr(self, '_config_warned', False):
+            return
+        self._config_warned = True
+        bounds = self._get_troop_bar_bounds()
+        screen_width, _ = pyautogui.size()
+        total_bar_width = bounds['num_slots'] * bounds['slot_width']
+        if total_bar_width < screen_width * 0.1:
+            print("⚠️ WARNING: Troop bar config seems too narrow for your screen resolution!")
+            print(f"   Screen width: {screen_width}px, Troop bar width: {total_bar_width}px")
+            print("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.")
+        if bounds['x_start'] == 0 and screen_width > 1920:
+            print("⚠️ WARNING: Troop bar x_start is 0 — this is likely wrong for your resolution!")
+            print("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.")
 
     def _get_slot_index(self, x: int, bounds: Dict) -> int:
         """Return 0-based slot index for an x coordinate within the troop bar."""
         slot_width = bounds['slot_width']
         x_start = bounds['x_start']
-        return max(0, (x - x_start) // slot_width)
+        num_slots = bounds.get('num_slots', 8)
+        if slot_width <= 0:
+            return 0
+        raw_index = (x - x_start) // slot_width
+        return max(0, min(raw_index, num_slots - 1))
 
     def _capture_troop_icon(self, x: int, y: int, slot_index: int, bounds: Dict) -> Optional[str]:
         """
@@ -246,6 +297,7 @@ class AttackRecorder:
         if x < 0 or y < 0 or x >= screen_width or y >= screen_height:
             print(f"⚠️ Skipping click at ({x}, {y}) — out of screen bounds")
             return
+        self._validate_troop_bar_config()
         bounds = self._get_troop_bar_bounds()
         in_troop_bar = (bounds['y_min'] <= y <= bounds['y_max'] and
                         bounds['x_start'] <= x <= bounds['x_end'])

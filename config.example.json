@@ -27,7 +27,8 @@
             "y_min_offset": 120,
             "slot_width": 70,
             "x_start": 0,
-            "num_slots": 8
+            "num_slots": 8,
+            "calibrated": false
         }
     },
     "anti_ban": {

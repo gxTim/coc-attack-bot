@@ -41,7 +41,8 @@ class AIAnalyzer:
             )
     
     def analyze_base(self, screenshot_path: str, min_gold: int = 300000, 
-                    min_elixir: int = 300000, min_dark: int = 2000) -> Dict:
+                    min_elixir: int = 300000, min_dark: int = 2000,
+                    max_th_level: int = 16) -> Dict:
         """
         Analyze enemy base screenshot using Google Gemini
         
@@ -50,6 +51,7 @@ class AIAnalyzer:
             min_gold: Minimum gold requirement
             min_elixir: Minimum elixir requirement  
             min_dark: Minimum dark elixir requirement
+            max_th_level: Maximum Town Hall level to attack (inclusive)
             
         Returns:
             Dict with analysis results and attack recommendation
@@ -66,7 +68,7 @@ class AIAnalyzer:
                 return self._create_error_response("Failed to encode image")
             
             # Create analysis prompt with requirements
-            prompt = self._create_analysis_prompt(min_gold, min_elixir, min_dark)
+            prompt = self._create_analysis_prompt(min_gold, min_elixir, min_dark, max_th_level)
             
             # Send request to Gemini
             response = self._send_gemini_request(image_data, prompt)
@@ -106,8 +108,9 @@ class AIAnalyzer:
             self.logger.error(f"Image encoding error: {e}")
             return None
     
-    def _create_analysis_prompt(self, min_gold: int, min_elixir: int, min_dark: int) -> str:
+    def _create_analysis_prompt(self, min_gold: int, min_elixir: int, min_dark: int, max_th_level: int = 16) -> str:
         """Create analysis prompt with current requirements"""
+        too_strong_level = max_th_level + 1
         return f"""
 You are an expert Clash of Clans player analyzing enemy bases for attack decisions.
 
@@ -133,20 +136,20 @@ LOOT READING RULES:
 - Be extremely careful reading the digits
 
 TOWN HALL RULES:
-- Town Hall 13, 14, 15, 16+ are TOO STRONG - always SKIP these
-- Only attack Town Hall 12 and below
+- Town Hall {too_strong_level}+ are TOO STRONG - always SKIP these
+- Only attack Town Hall {max_th_level} and below
 - Look at the Town Hall building design to identify the level
 
 DECISION CRITERIA:
-- ATTACK only if: ALL loot types meet requirements AND Town Hall is level 12 or below
-- SKIP if: ANY loot type is below requirements OR Town Hall is level 13+
+- ATTACK only if: ALL loot types meet requirements AND Town Hall is level {max_th_level} or below
+- SKIP if: ANY loot type is below requirements OR Town Hall is level {too_strong_level}+
 - Do NOT consider base difficulty - focus ONLY on loot amounts and Town Hall level
 
 Examples:
 - Gold: 19,015 (need 500,000) → SKIP (loot too low)
-- Town Hall 13 → SKIP (too strong regardless of loot)
-- Town Hall 12 with good loot → ATTACK
-- Town Hall 11 with good loot → ATTACK
+- Town Hall {too_strong_level} → SKIP (too strong regardless of loot)
+- Town Hall {max_th_level} with good loot → ATTACK
+- Town Hall {max_th_level - 1} with good loot → ATTACK
 
 Respond in this exact JSON format:
 {{

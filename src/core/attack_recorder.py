@@ -17,10 +17,16 @@ try:
 except ImportError:
     _HAS_WIN32API = False
 
+try:
+    from PIL import Image  # noqa: F401 – used indirectly via pyautogui.screenshot()
+    _HAS_PIL = True
+except ImportError:
+    _HAS_PIL = False
+
 class AttackRecorder:
     """Records attack sessions including mouse movements, clicks, and timing"""
     
-    def __init__(self, auto_detect_clicks: bool = True):
+    def __init__(self, auto_detect_clicks: bool = True, troop_bar_config: Optional[Dict] = None):
         self.recordings_dir = "recordings"
         self.current_recording = []
         self.recording_thread = None
@@ -29,6 +35,9 @@ class AttackRecorder:
         self.session_name = None
         self.auto_detect_clicks = auto_detect_clicks
         self._last_click_time = 0
+        
+        # Troop bar configuration (will be resolved when recording starts)
+        self._troop_bar_config = troop_bar_config or {}
         
         # Create recordings directory
         os.makedirs(self.recordings_dir, exist_ok=True)
@@ -120,8 +129,7 @@ class AttackRecorder:
                 if keyboard.is_pressed('f6'):
                     # Manual click recording (backup method)
                     x, y = pyautogui.position()
-                    self._add_action('click', x, y, current_time)
-                    print(f"🖱️ Manual click recorded at ({x}, {y})")
+                    self._record_click(x, y, current_time)
                     
                     # Wait for key release to prevent spam
                     while keyboard.is_pressed('f6'):
@@ -148,8 +156,7 @@ class AttackRecorder:
                             x, y = pyautogui.position()
                             # Check if this is a new click (avoid duplicates)
                             if (current_time - self._last_click_time) > 0.15:  # 150ms debounce
-                                self._add_action('click', x, y, current_time)
-                                print(f"🖱️ Auto-recorded click at ({x}, {y})")
+                                self._record_click(x, y, current_time)
                                 self._last_click_time = current_time
                     else:
                         # Method 2: Fallback using pyautogui mouse detection
@@ -157,8 +164,7 @@ class AttackRecorder:
                             if hasattr(pyautogui, '_mouseDown') and pyautogui._mouseDown:
                                 x, y = pyautogui.position()
                                 if (current_time - self._last_click_time) > 0.15:
-                                    self._add_action('click', x, y, current_time)
-                                    print(f"🖱️ Auto-recorded click at ({x}, {y}) [fallback]")
+                                    self._record_click(x, y, current_time)
                                     self._last_click_time = current_time
                         except (AttributeError, TypeError):
                             if not hasattr(self, '_fallback_warned'):
@@ -184,6 +190,69 @@ class AttackRecorder:
         print(f"Auto-click detection: {status}")
         return self.auto_detect_clicks
     
+    def _get_troop_bar_bounds(self) -> Dict:
+        """Get troop bar region bounds, resolved against current screen size."""
+        screen_width, screen_height = pyautogui.size()
+        cfg = self._troop_bar_config
+        y_min_offset = cfg.get('y_min_offset', 120)
+        return {
+            'y_min': screen_height - y_min_offset,
+            'y_max': screen_height,
+            'x_start': cfg.get('x_start', 0),
+            'x_end': screen_width,
+            'slot_width': cfg.get('slot_width', 70),
+            'num_slots': cfg.get('num_slots', 8),
+        }
+
+    def _get_slot_index(self, x: int, bounds: Dict) -> int:
+        """Return 0-based slot index for an x coordinate within the troop bar."""
+        slot_width = bounds['slot_width']
+        x_start = bounds['x_start']
+        return max(0, (x - x_start) // slot_width)
+
+    def _capture_troop_icon(self, x: int, y: int, slot_index: int, bounds: Dict) -> Optional[str]:
+        """
+        Capture a small crop of the troop icon at the given slot and save it.
+        Returns the saved file path, or None on failure.
+        """
+        if not _HAS_PIL:
+            return None
+        try:
+            slot_width = bounds['slot_width']
+            x_start = bounds['x_start'] + slot_index * slot_width
+            icon_height = bounds['y_max'] - bounds['y_min']
+            # Capture the slot region
+            screenshot = pyautogui.screenshot(region=(x_start, bounds['y_min'], slot_width, icon_height))
+            icons_dir = os.path.join(self.recordings_dir, 'icons')
+            os.makedirs(icons_dir, exist_ok=True)
+            icon_path = os.path.join(icons_dir, f"{self.session_name}_slot_{slot_index}.png")
+            screenshot.save(icon_path)
+            return icon_path
+        except Exception as e:
+            print(f"⚠️ Could not capture troop icon for slot {slot_index}: {e}")
+            return None
+
+    def _record_click(self, x: int, y: int, timestamp: float) -> None:
+        """
+        Record a click, detecting whether it falls in the troop bar.
+        Troop bar clicks are saved as 'troop_select' actions with slot metadata
+        and a captured icon image.  All other clicks are saved as plain 'click'.
+        """
+        bounds = self._get_troop_bar_bounds()
+        in_troop_bar = (bounds['y_min'] <= y <= bounds['y_max'] and
+                        bounds['x_start'] <= x <= bounds['x_end'])
+        if in_troop_bar:
+            slot_index = self._get_slot_index(x, bounds)
+            icon_path = self._capture_troop_icon(x, y, slot_index, bounds)
+            extra: Dict = {'slot_index': slot_index}
+            if icon_path:
+                extra['troop_icon'] = icon_path
+            self._add_action('troop_select', x, y, timestamp, extra)
+            print(f"🪖 Troop select recorded at ({x}, {y}) — slot {slot_index}")
+        else:
+            self._add_action('click', x, y, timestamp)
+            print(f"🖱️ Click recorded at ({x}, {y})")
+
     def _add_action(self, action_type: str, x: int, y: int, timestamp: float, extra_data: Optional[Dict] = None) -> None:
         """Add an action to the current recording"""
         action = {

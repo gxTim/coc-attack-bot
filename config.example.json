@@ -22,6 +22,12 @@
         "attack_sessions": [],
         "max_search_attempts": 10,
         "battle_timeout": 180,
-        "max_th_level": 12
+        "max_th_level": 16,
+        "troop_bar": {
+            "y_min_offset": 120,
+            "slot_width": 70,
+            "x_start": 0,
+            "num_slots": 8
+        }
     }
 }

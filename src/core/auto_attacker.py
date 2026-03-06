@@ -423,8 +423,10 @@ class AutoAttacker:
         min_gold = self.config.get('ai_analyzer.min_gold', 300000)
         min_elixir = self.config.get('ai_analyzer.min_elixir', 300000)
         min_dark = self.config.get('ai_analyzer.min_dark_elixir', 5000)
+        max_th_level = self.config.get('auto_attacker.max_th_level', 16)
 
-        analysis = self.ai_analyzer.analyze_base(screenshot_path, min_gold, min_elixir, min_dark)
+        analysis = self.ai_analyzer.analyze_base(screenshot_path, min_gold, min_elixir, min_dark,
+                                                  max_th_level=max_th_level)
 
         if analysis.get("error"):
             self.logger.error(f"AI analysis failed: {analysis['reasoning']}")
@@ -439,7 +441,6 @@ class AutoAttacker:
         
         self.logger.info(f"🔍 AI Extracted Loot: Gold={extracted_gold:,}, Elixir={extracted_elixir:,}, Dark={extracted_dark:,}")
         self.logger.info(f"🏰 Town Hall Level: {townhall_level}")
-        max_th_level = self.config.get('auto_attacker.max_th_level', 12)
         self.logger.info(f"📋 Requirements: Gold={min_gold:,}, Elixir={min_elixir:,}, Dark={min_dark:,}, Max TH={max_th_level}")
         
         # Check loot requirements

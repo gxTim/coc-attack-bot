@@ -730,7 +730,12 @@ class CoordinatesPage(ctk.CTkFrame):
             self._refresh_coords()
 
     def _prompt_for_name(self, x: int, y: int) -> Optional[str]:
-        """Thread-safe prompt for a button name via CTkInputDialog on the main thread."""
+        """Thread-safe prompt for a button name via CTkInputDialog on the main thread.
+
+        Schedules the dialog on the Tk main thread and blocks the calling
+        (background) thread until the user responds or until the 5-minute
+        timeout expires.  Returns ``None`` if cancelled or timed out.
+        """
         result_q: queue.Queue = queue.Queue()
 
         def _show():
@@ -741,7 +746,10 @@ class CoordinatesPage(ctk.CTkFrame):
             result_q.put(dialog.get_input())
 
         self.winfo_toplevel().after(0, _show)
-        return result_q.get() or None  # blocks until dialog closes
+        try:
+            return result_q.get(timeout=300) or None  # 5-minute safety timeout
+        except queue.Empty:
+            return None
 
     def _start_mapping(self):
         win = ctk.CTkToplevel(self)
@@ -754,7 +762,8 @@ class CoordinatesPage(ctk.CTkFrame):
                 "Coordinate Mapping Mode\n\n"
                 "Press F2 to record the current mouse position.\n"
                 "A dialog will ask for the button name.\n"
-                "Press F3 to save. Press Escape to finish."
+                "Press F3 to save the current session and continue.\n"
+                "Press Escape to finish."
             ),
             justify="left", text_color=TEXT,
         ).pack(padx=20, pady=20)

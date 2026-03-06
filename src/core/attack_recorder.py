@@ -174,7 +174,10 @@ class AttackRecorder:
                 # Track significant mouse movements
                 current_mouse_pos = pyautogui.position()
                 if self._distance(last_mouse_pos, current_mouse_pos) > 50:
-                    self._add_action('move', current_mouse_pos[0], current_mouse_pos[1], current_time)
+                    mx, my = current_mouse_pos
+                    screen_width, screen_height = pyautogui.size()
+                    if mx >= 0 and my >= 0 and mx < screen_width and my < screen_height:
+                        self._add_action('move', mx, my, current_time)
                     last_mouse_pos = current_mouse_pos
                 
                 time.sleep(0.05)  # 20 FPS recording
@@ -237,7 +240,12 @@ class AttackRecorder:
         Record a click, detecting whether it falls in the troop bar.
         Troop bar clicks are saved as 'troop_select' actions with slot metadata
         and a captured icon image.  All other clicks are saved as plain 'click'.
+        Clicks with negative or out-of-bounds coordinates are silently dropped.
         """
+        screen_width, screen_height = pyautogui.size()
+        if x < 0 or y < 0 or x >= screen_width or y >= screen_height:
+            print(f"⚠️ Skipping click at ({x}, {y}) — out of screen bounds")
+            return
         bounds = self._get_troop_bar_bounds()
         in_troop_bar = (bounds['y_min'] <= y <= bounds['y_max'] and
                         bounds['x_start'] <= x <= bounds['x_end'])

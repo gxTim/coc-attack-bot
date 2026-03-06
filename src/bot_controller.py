@@ -15,8 +15,8 @@ from .utils.logger import Logger
 class BotController:
     """Main controller for the COC Attack Bot"""
     
-    def __init__(self):
-        self.logger = Logger()
+    def __init__(self, console_output: bool = True):
+        self.logger = Logger(console_output=console_output)
         self.config = Config()
         self.screen_capture = ScreenCapture()
         self.coordinate_mapper = CoordinateMapper()

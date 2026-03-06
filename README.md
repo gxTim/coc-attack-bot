@@ -1,6 +1,6 @@
 # COC Attack Bot
 
-A Windows automation bot for Clash of Clans that can record attack sessions and replay them automatically with AI-powered base analysis.
+A Windows automation bot for Clash of Clans that can record attack sessions and replay them automatically. Features a modern dark-themed GUI, AI-powered base analysis via Google Gemini, and built-in anti-ban measures.
 
 ## ⚠️ Disclaimer
 
@@ -8,29 +8,33 @@ This bot is for educational purposes only. Use at your own risk. The author is n
 
 ## Features
 
+- 🖥️ **Modern GUI** - Dark-themed CustomTkinter interface with dashboard, recording, and auto-attack pages
 - 🎯 **Coordinate Mapping** - Record button positions for your screen resolution
 - 📹 **Attack Recording** - Record your attack sessions including clicks and timing
 - ▶️ **Attack Playback** - Replay recorded attacks automatically
-- 🤖 **AI Base Analysis** - Analyze base loot using Google Gemini AI
+- 🤖 **AI Base Analysis** - Analyze base loot and Town Hall level using Google Gemini AI
 - 🏃 **Auto Attacker** - Automatically find and attack bases based on loot requirements
+- 🛡️ **Anti-Ban System** - Humanized clicks, random delays, cooldowns, and session breaks
 - 🖼️ **Screenshot Capture** - Take screenshots of the game window
 - 🎮 **Game Detection** - Automatically detect COC game window
 - ⌨️ **Hotkey Controls** - Easy hotkey controls for all functions
-- 📊 **Session Management** - Save, load, and manage multiple attack sessions
+- 📊 **Live Dashboard** - Real-time attack statistics, loot totals, and success rates
+- 💾 **Session Management** - Save, load, and manage multiple attack sessions
+- ⚙️ **JSON Configuration** - Simple `config.json` for all settings
 
 ## Requirements
 
 - Windows 10 or later
-- Python 3.8 or later
+- Python 3.10 or later
 - **Clash of Clans running in FULL SCREEN mode** (required for all operations)
 - Compatible with emulators (BlueStacks, NoxPlayer, etc.)
-- Google Gemini API key (for AI analysis features)
+- Google Gemini API key (optional — for AI analysis features)
 
 ## Installation
 
 1. **Clone the repository:**
    ```bash
-   git clone <https://github.com/DFanso/coc-attack-bot>
+   git clone https://github.com/gxTim/coc-attack-bot.git
    cd coc-attack-bot
    ```
 
@@ -41,27 +45,18 @@ This bot is for educational purposes only. Use at your own risk. The author is n
 
 3. **Configure the bot:**
    ```bash
-   # Copy the example configuration file
-   copy src\utils\example.config.py src\utils\config.py
+   copy config.example.json config.json
    ```
+   Open `config.json` in a text editor and adjust settings as needed (see [Configuration](#configuration)).
 
-4. **Get a Google Gemini API key:**
-   - Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
-   - Create a new API key
-   - Copy the API key for the next step
+4. **Run the bot:**
 
-5. **Edit the configuration:**
-   - Open `src\utils\config.py` in a text editor
-   - Replace the placeholder API key on line 82 with your actual Gemini API key:
-     ```python
-     "google_gemini_api_key": "YOUR_ACTUAL_API_KEY_HERE",
-     ```
-   - Set `"enabled": True` on line 83 to enable AI analysis
-
-6. **Run the bot:**
-   ```bash
-   python main.py
-   ```
+   | Method | Command | Description |
+   |--------|---------|-------------|
+   | **GUI (recommended)** | Double-click `start_bot.bat` or `main.pyw` | Launches the GUI without a console window |
+   | **GUI + console** | `python main.py` | GUI with log output in the console |
+   | **Console only** | `python main.py --console` | Text-based menu interface |
+   | **Auto-launcher** | Double-click `run_bot.bat` | Checks dependencies, then launches |
 
 ## Quick Start Guide
 
@@ -69,195 +64,200 @@ This bot is for educational purposes only. Use at your own risk. The author is n
 
 ### 1. Initial Setup
 
-1. **Open Clash of Clans in FULL SCREEN mode** (this is crucial for accurate coordinates)
-2. Run the bot: `python main.py`
-3. Go to "Game Detection" to verify the bot can find your game window
-4. Take a screenshot to confirm the capture area is correct
+1. Open Clash of Clans in **full screen mode**
+2. Start the bot (see table above)
+3. Use **Game Detection** to verify the bot can find your game window
+4. Take a test screenshot to confirm the capture area
 
 ### 2. Map Key Coordinates
 
-**This is the most important step - you need to map button positions for your specific screen resolution.**
+Map the button positions for your specific screen resolution:
 
-1. Select "Coordinate Mapping" from the main menu
-2. Choose "Start coordinate mapping"
-3. Move your mouse to important game elements and press **F2** to record each position:
-   - **Attack button** (to start searching for bases)
-   - **Next button** (to skip bases during search)
-   - **Return home button** (after attack completion)
-4. Enter descriptive names for each coordinate (e.g., "attack_button", "barbarian", "archer")
-5. Press **F3** to save all coordinates when finished
-
-**Essential coordinates to map:**
-- `attack_button` - The attack button to start base search
-- `next_button` - Skip to next base during search
-- `find_a_match` - find a match button
-- `return_home` - Return home after attack
+1. Open the **Coordinate Mapping** page (GUI) or select it from the console menu
+2. Press **F1** to start mapping mode
+3. Move your mouse to each game element and press **F2** to record:
+   - `attack_button` — starts base search
+   - `next_button` — skip to next base
+   - `find_a_match` — find a match button
+   - `return_home` — return home after attack
+4. Press **F3** to save all coordinates
 
 ### 3. Record Attack Strategies
 
-1. Select "Attack Recording" from the main menu
-2. Choose "Start new recording"
-3. Enter a descriptive name for your attack strategy (e.g., "barch_collector_raid")
-4. **Manual Mode (Recommended):** Press **F6** to record each click precisely
-5. Use **F7** to add delays between actions when needed
-6. Record a complete attack sequence from troop deployment to completion
-7. Press **F5** when finished to stop and save the recording
+1. Open the **Recording** page
+2. Enter a name for the strategy (e.g. `barch_raid`)
+3. Press **F5** to start recording
+4. Play through a full attack — clicks are recorded automatically
+5. Use **F7** to add manual delay markers
+6. Press **F5** again to stop and save
 
-**Recording Tips:**
-- Record different strategies for different base types
-- Include delays between troop deployments for better timing
-- Record the full sequence including returning home
+### 4. Auto Attack (AI-Powered)
 
-### 4. Set Up Auto Attacker (AI-Powered)
+1. Add your Gemini API key in `config.json` → `ai_analyzer.google_gemini_api_key`
+2. Open the **Auto Attack** page
+3. Select one or more recorded attack sessions
+4. Set minimum loot requirements (gold, elixir, dark elixir)
+5. Set max Town Hall level
+6. Click **▶ Start Auto Attack**
 
-1. Ensure you have configured your Gemini API key in `src\utils\config.py`
-2. Select "Auto Attacker" from the main menu
-3. Choose "Start auto attack"
-4. Set your minimum loot requirements:
-   - Minimum gold (default: 300,000)
-   - Minimum elixir (default: 300,000)
-   - Minimum dark elixir (default: 2,000)
-5. Select the attack strategy you want to use
-6. The bot will automatically:
-   - Search for bases
-   - Analyze loot using AI
-   - Attack suitable bases
-   - Return home and repeat
-
-### 5. Manual Attack Playback
-
-1. Select "Attack Playback" from the main menu
-2. Choose "Play attack"
-3. Select your recorded session
-4. Make sure COC is in the attack screen with a base loaded
-5. Press Enter to begin playback
-
-**Playback Tips:**
-- Ensure game state matches when the recording was made
-- Use slower playback speeds for more reliable execution
-- Always supervise the playback process
+The bot will search for bases, analyze loot with AI, attack qualifying bases, and repeat.
 
 ## Controls
 
-### Coordinate Mapping
-- **F1** - Start/Stop mapping mode
-- **F2** - Record current mouse position
-- **F3** - Save coordinates
-- **ESC** - Cancel mapping
-
-### Attack Recording
-- **F5** - Start/Stop recording
-- **F6** - Manual click recording (recommended mode)
-- **F7** - Add delay marker
-- **ESC** - Cancel recording
-
-**Recording Modes:**
-- **Manual Mode (Default):** Use F6 to record each click precisely
-- **Auto Mode (Optional):** Enable in menu for automatic click detection
-
-### Attack Playback
-- **F8** - Pause/Resume playback
-- **F9** - Stop playback
-- **ESC** - Emergency stop
+| Context | Key | Action |
+|---------|-----|--------|
+| Coordinate Mapping | **F1** | Start / Stop mapping mode |
+| | **F2** | Record current mouse position |
+| | **F3** | Save coordinates |
+| | **ESC** | Cancel mapping |
+| Attack Recording | **F5** | Start / Stop recording |
+| | **F6** | Manual click recording |
+| | **F7** | Add delay marker |
+| | **ESC** | Cancel recording |
+| Attack Playback | **F8** | Pause / Resume |
+| | **F9** | Stop playback |
+| | **ESC** | Emergency stop |
+| Global | **Ctrl+Alt+S** | Emergency stop (auto attack) |
+| | Mouse to top-left corner | PyAutoGUI failsafe stop |
 
 ## Directory Structure
 
 ```
 coc-attack-bot/
-├── main.py                 # Main entry point
+├── main.py                 # Entry point (GUI default, --console flag)
+├── main.pyw                # Windows GUI launcher (no console)
+├── start_bot.bat           # Quick-launch GUI (no console)
+├── start_bot_console.bat   # Quick-launch console mode
+├── run_bot.bat             # Auto-install + launch
+├── config.example.json     # Example configuration
+├── config.json             # Your local configuration (not tracked)
+├── requirements.txt        # Python dependencies
+├── example_usage.py        # Scripted usage examples
 ├── src/
-│   ├── bot_controller.py   # Main bot logic
+│   ├── bot_controller.py   # Main bot logic controller
 │   ├── core/
-│   │   ├── screen_capture.py      # Screenshot and window detection
-│   │   ├── coordinate_mapper.py   # Button coordinate mapping
-│   │   ├── attack_recorder.py     # Attack session recording
-│   │   └── attack_player.py       # Attack playback
+│   │   ├── ai_analyzer.py        # Google Gemini AI loot analysis
+│   │   ├── attack_player.py      # Attack playback engine
+│   │   ├── attack_recorder.py    # Attack session recording
+│   │   ├── auto_attacker.py      # Automated attack loop
+│   │   ├── coordinate_mapper.py  # Button coordinate mapping
+│   │   └── screen_capture.py     # Screenshot and window detection
 │   ├── ui/
-│   │   └── console_ui.py   # Console user interface
+│   │   ├── gui.py          # CustomTkinter GUI (dashboard, auto-attack, recording)
+│   │   └── console_ui.py   # Console-based menu interface
 │   └── utils/
+│       ├── config.py       # JSON configuration management
 │       ├── logger.py       # Logging utility
-│       └── config.py       # Configuration management
+│       └── humanizer.py    # Anti-ban click/delay randomization
 ├── coordinates/            # Saved button coordinates
-├── recordings/            # Recorded attack sessions
-├── screenshots/           # Captured screenshots
-├── templates/             # Image templates (future use)
-├── logs/                  # Log files
-├── requirements.txt       # Python dependencies
-└── README.md             # This file
+├── recordings/             # Recorded attack sessions
+├── screenshots/            # Captured screenshots
+└── logs/                   # Log files
 ```
 
 ## Configuration
 
-The bot uses `src\utils\config.py` for all configuration settings. After copying from `example.config.py`, you can modify:
+All settings live in `config.json` (copy from `config.example.json`). Key sections:
 
-### Essential Settings
+### Bot Settings
+```json
+"bot": {
+    "click_delay": 0.1,
+    "playback_speed": 1.0,
+    "failsafe": true
+}
+```
 
-**AI Analysis Settings:**
-- `google_gemini_api_key` - Your Gemini API key (required for AI features)
-- `enabled` - Set to `True` to enable AI base analysis
-- `min_gold`, `min_elixir`, `min_dark_elixir` - Minimum loot requirements for auto attacks
+### AI Analyzer
+```json
+"ai_analyzer": {
+    "enabled": false,
+    "google_gemini_api_key": "YOUR_GEMINI_API_KEY_HERE",
+    "model": "gemini-2.5-flash-lite",
+    "min_gold": 300000,
+    "min_elixir": 300000,
+    "min_dark_elixir": 2000
+}
+```
+Get a free API key at [Google AI Studio](https://aistudio.google.com/app/apikey).
 
-**Other Settings:**
-- Hotkey bindings for all operations
-- Default directories for screenshots, recordings, coordinates
-- Automation timing and speed settings
-- Game detection parameters
+### Anti-Ban
+```json
+"anti_ban": {
+    "enabled": true,
+    "click_offset_range": 5,
+    "delay_variance": 0.3,
+    "cooldown_min": 10,
+    "cooldown_max": 45,
+    "max_attacks_per_hour": 20,
+    "max_attacks_per_session": 100,
+    "break_every_n_attacks": 10,
+    "break_duration_min": 120,
+    "break_duration_max": 300
+}
+```
+
+### Auto Attacker
+```json
+"auto_attacker": {
+    "attack_sessions": [],
+    "max_search_attempts": 10,
+    "battle_timeout": 180,
+    "max_th_level": 16,
+    "troop_bar": { ... }
+}
+```
 
 ## Tips for Best Results
 
-1. **Full Screen Mode** - **ALWAYS** run Clash of Clans in full screen mode for accurate coordinate mapping
-2. **Screen Resolution** - Keep your screen resolution consistent between recording and playback
-3. **Game State** - Make sure COC is in the same state when playing back attacks
-4. **Coordinate Mapping** - Take time to accurately map all essential buttons and positions
-5. **Practice Mode** - Test your recordings on practice attacks first
-6. **Playback Speed** - Use slower speeds (0.5x) for more reliable playback
-7. **AI Analysis** - Ensure your Gemini API key is valid and has sufficient quota
-8. **Supervision** - Always supervise the bot during operation
-9. **Army Ready** - Make sure your army is trained before starting auto attacks
-10. **Internet Connection** - Stable internet required for AI analysis features
+1. **Full Screen Mode** — always run COC in full screen for accurate coordinates
+2. **Consistent Resolution** — don't change resolution between recording and playback
+3. **Game State** — make sure COC is in the same state when replaying attacks
+4. **Accurate Mapping** — take time to map all essential buttons precisely
+5. **Test First** — try recordings on practice attacks before going live
+6. **Supervision** — always supervise the bot during operation
+7. **Army Ready** — make sure your army is trained before auto-attacking
+8. **Stable Internet** — required for AI analysis features
+9. **Anti-Ban Settings** — keep the defaults unless you know what you're doing
 
 ## Safety Features
 
-- **Failsafe** - Move mouse to top-left corner to stop all automation
-- **Emergency Stop** - Press ESC during any operation to stop immediately
-- **Validation** - Recordings are validated before playback
-- **Logging** - All actions are logged for debugging
+- **Failsafe** — move mouse to top-left corner to stop all automation
+- **Emergency Stop** — `Ctrl+Alt+S` during auto attack, or `ESC` during any operation
+- **Anti-Ban** — randomized clicks, delays, cooldowns, and session breaks
+- **Validation** — recordings are validated before playback
+- **Logging** — all actions are logged to `logs/` for debugging
 
 ## Troubleshooting
 
+### GUI doesn't start / "customtkinter not installed"
+```bash
+python -m pip install customtkinter
+```
+Make sure `pip` installs into the same Python version you run.
+
 ### Game Not Detected
-- Make sure COC is running and visible
-- Try different window modes (full screen vs windowed)
+- Make sure COC is running and visible on screen
+- Try full screen vs. windowed mode
 - Check if you're using a supported emulator
 
 ### Playback Issues
-- Verify coordinates are mapped correctly for your resolution
-- Check that the game is in the correct state before playback
-- Try slower playback speeds
-- Validate recordings before playing them
+- Re-map coordinates if your resolution changed
+- Verify game state matches the recording
+- Try slower playback speed in `config.json`
 
-### Recording Problems
-- Make sure the recording hotkeys aren't conflicting with other software
-- Check that the bot has proper permissions to detect input
-- Verify the screenshots directory is writable
+### Console window stays open with GUI
+- Use `start_bot.bat`, `main.pyw`, or `pythonw main.py` instead of `python main.py`
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
+Contributions are welcome! Please feel free to submit pull requests or open issues.
 
 ## License
 
 This project is provided as-is for educational purposes. Use responsibly and at your own risk.
 
-## Support
-
-If you encounter issues:
-
-1. Check the log files in the `logs/` directory
-2. Verify your Python and package versions
-3. Make sure COC is running and detectable
-4. Try the built-in validation tools
-
 ---
 
-**Remember: This bot is for educational purposes only. Always follow the game's terms of service and use responsibly.** 
+**Remember: This bot is for educational purposes only. Always follow the game's terms of service and use responsibly.**
+ 

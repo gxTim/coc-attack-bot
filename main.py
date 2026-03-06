@@ -6,8 +6,8 @@ Automated Clash of Clans attack recording and playback bot for Windows
 
 import sys
 import os
+import traceback
 from src.bot_controller import BotController
-from src.utils.logger import Logger
 
 
 def main():
@@ -15,12 +15,9 @@ def main():
     use_console = '--console' in sys.argv
 
     try:
-        # Initialize logger
-        logger = Logger()
-        logger.info("Starting COC Attack Bot...")
-
-        # Initialize bot controller
-        bot = BotController()
+        # Initialize bot controller (suppress console output in GUI mode)
+        bot = BotController(console_output=use_console)
+        bot.logger.info("Starting COC Attack Bot...")
 
         if use_console:
             from src.ui.console_ui import ConsoleUI
@@ -32,6 +29,7 @@ def main():
                 gui = BotGUI(bot)
                 gui.run()
             except ImportError:
+                traceback.print_exc()
                 print("⚠️  customtkinter not installed. Falling back to console UI.")
                 print("Install with: pip install customtkinter")
                 from src.ui.console_ui import ConsoleUI

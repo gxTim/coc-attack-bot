@@ -78,12 +78,19 @@ class GUILogHandler:
         self.root = root
 
     def write(self, message: str, level: str = "INFO") -> None:
-        """Thread-safe log writing to the GUI panel."""
+        """Thread-safe log writing to the GUI panel with level-based coloring."""
+        colour = self.LEVEL_COLOURS.get(level.upper(), self.LEVEL_COLOURS["INFO"])
+        tag = f"level_{level.upper()}"
+
         def _append():
             try:
                 ts = datetime.now().strftime("%H:%M:%S")
+                text_widget = self.log_textbox._textbox
+                # Configure the colour tag on first use
+                if tag not in text_widget.tag_names():
+                    text_widget.tag_configure(tag, foreground=colour)
                 self.log_textbox.configure(state="normal")
-                self.log_textbox.insert("end", f"[{ts}] [{level}] {message}\n")
+                text_widget.insert("end", f"[{ts}] [{level}] {message}\n", tag)
                 self.log_textbox.configure(state="disabled")
                 self.log_textbox.see("end")
             except Exception:
@@ -106,6 +113,7 @@ class DashboardPage(ctk.CTkFrame):
         super().__init__(parent, fg_color=BG_MAIN)
         self.bot = bot_controller
         self._polling = False
+        self._ever_started = False
         self._build_ui()
 
     def _build_ui(self):
@@ -162,6 +170,7 @@ class DashboardPage(ctk.CTkFrame):
         """Periodically refresh dashboard statistics."""
         try:
             if self.bot.is_auto_attacking():
+                self._ever_started = True
                 stats = self.bot.get_auto_attack_stats()
                 self.status_label.configure(text="RUNNING", text_color=ACCENT)
 
@@ -185,7 +194,10 @@ class DashboardPage(ctk.CTkFrame):
                 self.elixir_label.configure(text=f"💧 Elixir\n{loot.get('elixir', 0):,}")
                 self.dark_label.configure(text=f"⚫ Dark\n{loot.get('dark_elixir', 0):,}")
             else:
-                self.status_label.configure(text="STOPPED", text_color="#FF4444")
+                if self._ever_started:
+                    self.status_label.configure(text="STOPPED", text_color="#FF4444")
+                else:
+                    self.status_label.configure(text="IDLE", text_color=TEXT_DIM)
         except Exception:
             pass
 
@@ -379,14 +391,16 @@ class AutoAttackPage(ctk.CTkFrame):
         th = int(self.th_dropdown.get())
         self.bot.config.set("auto_attacker.max_th_level", th)
 
+        # Disable the start button BEFORE starting the thread to prevent
+        # double-clicks from launching a second concurrent attack.
+        self.start_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal")
+
         threading.Thread(
             target=self.bot.start_auto_attack,
             args=(selected, min_gold, min_elixir, min_dark),
             daemon=True,
         ).start()
-
-        self.start_btn.configure(state="disabled")
-        self.stop_btn.configure(state="normal")
 
     def _stop_attack(self):
         threading.Thread(target=self.bot.stop_auto_attack, daemon=True).start()

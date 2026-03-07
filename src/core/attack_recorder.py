@@ -191,7 +191,7 @@ class AttackRecorder:
                         self._add_action('move', mx, my, current_time)
                     last_mouse_pos = current_mouse_pos
                 
-                time.sleep(0.1)  # 10 FPS polling — sufficient for 150ms click debounce
+                time.sleep(0.1)  # 10 FPS polling — well within 150ms click debounce window
         
         except Exception as e:
             self._log(f"Recording error: {e}", "error")

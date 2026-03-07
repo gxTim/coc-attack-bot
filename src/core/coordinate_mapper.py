@@ -165,7 +165,13 @@ class CoordinateMapper:
                         self.save_coordinates()
     
     def get_coordinates(self, button_name: Optional[str] = None) -> Dict:
-        """Get coordinates for a specific button or all buttons"""
+        """Get coordinates for a specific button or all buttons.
+
+        When called without arguments, returns the internal dictionary directly
+        for read-only access (no copy).  Callers must not mutate the returned
+        dict; use :py:meth:`add_coordinate` or :py:meth:`remove_coordinate` to
+        modify mappings.
+        """
         if button_name:
             return self.coordinates.get(button_name, {})
         return self.coordinates

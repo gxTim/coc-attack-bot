@@ -165,7 +165,7 @@ class AttackPlayer:
                 
                 # Progress indicator
                 progress = (i + 1) / len(actions) * 100
-                self._log(f"\rProgress: {progress:.1f}% ({i + 1}/{len(actions)})")
+                self._log(f"Progress: {progress:.1f}% ({i + 1}/{len(actions)})")
         
         except Exception as e:
             self._log(f"\nPlayback error: {e}", "error")

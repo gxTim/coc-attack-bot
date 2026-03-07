@@ -73,11 +73,11 @@ class Logger:
         # messages are not produced by ancestor handlers.
         self.logger.propagate = False
         
-        # Create file handler
-        file_handler = logging.FileHandler(self.log_file, encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
-        self.logger.addHandler(file_handler)
+        # Create file handler — keep a reference for explicit cleanup
+        self._file_handler = logging.FileHandler(self.log_file, encoding='utf-8')
+        self._file_handler.setLevel(logging.DEBUG)
+        self._file_handler.setFormatter(formatter)
+        self.logger.addHandler(self._file_handler)
         
         # Create console handler (only when console output is enabled)
         if self._console_output:
@@ -144,4 +144,11 @@ class Logger:
         'INFO', 'WARNING', 'ERROR', 'CRITICAL'.
         Pass None to remove the callback.
         """
-        self._gui_callback = callback 
+        self._gui_callback = callback
+
+    def close(self) -> None:
+        """Flush and close the file handler to release the log file."""
+        if hasattr(self, '_file_handler') and self._file_handler is not None:
+            self._file_handler.close()
+            self.logger.removeHandler(self._file_handler)
+            self._file_handler = None 

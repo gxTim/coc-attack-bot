@@ -167,6 +167,11 @@ class AutoAttacker:
             break_duration_min = self.config.get('anti_ban.break_duration_min', 120)
             break_duration_max = self.config.get('anti_ban.break_duration_max', 300)
 
+            # Track the last total_attacks value for which an activity break was
+            # taken so that repeated None results (no base found) don't cause
+            # the same break to trigger over and over.
+            last_break_at = 0
+
             while self.is_running:
                 # Check emergency stop
                 if keyboard.is_pressed('ctrl+alt+s'):
@@ -215,7 +220,8 @@ class AutoAttacker:
                             self.stats['hour_start_time'] = datetime.now()
 
                 # ── Anti-ban: activity break ─────────────────────────────────
-                if anti_ban_enabled and total > 0 and break_every_n > 0 and total % break_every_n == 0:
+                if anti_ban_enabled and total > 0 and break_every_n > 0 and total % break_every_n == 0 and total != last_break_at:
+                    last_break_at = total
                     break_duration = random.uniform(break_duration_min, break_duration_max)
                     self.logger.info(
                         f"☕ Activity break every {break_every_n} attacks: "

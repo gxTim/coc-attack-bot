@@ -30,8 +30,9 @@ def humanize_delay(base_delay: float, variance: float = 0.3) -> float:
 
     Returns:
         A random float in the range
-        [base_delay*(1-variance), base_delay*(1+variance)].
+        [base_delay*(1-variance), base_delay*(1+variance)],
+        clamped to a minimum of 0.0.
     """
     min_delay = base_delay * (1 - variance)
     max_delay = base_delay * (1 + variance)
-    return random.uniform(min_delay, max_delay)
+    return max(0.0, random.uniform(min_delay, max_delay))

@@ -54,7 +54,7 @@ class AttackPlayer:
     def _log(self, msg: str, level: str = "info") -> None:
         """Log via Logger if available, otherwise print."""
         if self._logger:
-            getattr(self._logger, level)(msg)
+            getattr(self._logger, level, self._logger.info)(msg)
         else:
             print(msg)
     

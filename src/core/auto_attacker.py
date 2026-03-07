@@ -176,6 +176,9 @@ class AutoAttacker:
                 # Refresh coordinate cache at start of each cycle
                 self._cached_coords = None
 
+                # Clean up old screenshots to prevent disk space buildup
+                self.screen_capture.cleanup_screenshots()
+
                 with self._stats_lock:
                     total = self.stats['total_attacks']
                     attacks_this_hour = self.stats['attacks_this_hour']

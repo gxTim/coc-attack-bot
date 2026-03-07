@@ -36,7 +36,7 @@ class CoordinateMapper:
     def _log(self, msg: str, level: str = "info") -> None:
         """Log via Logger if available, otherwise print."""
         if self._logger:
-            getattr(self._logger, level)(msg)
+            getattr(self._logger, level, self._logger.info)(msg)
         else:
             print(msg)
     
@@ -56,7 +56,7 @@ class CoordinateMapper:
     def save_coordinates(self, name: Optional[str] = None, coords: Optional[Dict] = None) -> None:
         """Save coordinates to file"""
         try:
-            if coords:
+            if coords is not None:
                 # Save specific coordinates
                 if name:
                     self.coordinates[name] = coords

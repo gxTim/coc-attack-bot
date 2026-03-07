@@ -60,7 +60,7 @@ class AttackRecorder:
     def _log(self, msg: str, level: str = "info") -> None:
         """Log via Logger if available, otherwise print."""
         if self._logger:
-            getattr(self._logger, level)(msg)
+            getattr(self._logger, level, self._logger.info)(msg)
         else:
             print(msg)
     
@@ -386,6 +386,9 @@ class AttackRecorder:
         try:
             with open(filepath, 'r') as f:
                 return json.load(f)
+        except json.JSONDecodeError as e:
+            self._log(f"Recording file is corrupt (invalid JSON): {session_name} — {e}", "error")
+            return None
         except Exception as e:
             self._log(f"Error loading recording: {e}", "error")
             return None

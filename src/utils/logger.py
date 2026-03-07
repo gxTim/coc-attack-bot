@@ -4,13 +4,14 @@ Logger - Logging utility for the COC Attack Bot
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 class Logger:
     """Simple logging utility for the COC Attack Bot"""
     
-    def __init__(self, log_file: Optional[str] = None, console_output: bool = True):
+    def __init__(self, log_file: Optional[str] = None, console_output: bool = True,
+                 max_log_age_days: int = 7):
         self.log_dir = "logs"
         self._gui_callback: Optional[Callable[[str, str], None]] = None
         self._console_output = console_output
@@ -18,18 +19,44 @@ class Logger:
         # Create logs directory
         os.makedirs(self.log_dir, exist_ok=True)
         
-        # Set default log file if not provided
+        # Set default log file if not provided — each session gets its own file
+        # using date+time so restarts never share a file.
         if log_file is None:
-            timestamp = datetime.now().strftime("%Y%m%d")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             log_file = f"coc_bot_{timestamp}.log"
         
         self.log_file = os.path.join(self.log_dir, log_file)
         
+        # Remove log files older than max_log_age_days
+        self._cleanup_old_logs(max_log_age_days)
+        
         # Configure logging
         self._setup_logging()
         
+        # Write a clear session-start marker so session boundaries are visible
+        # even if the caller later reads files from the same directory.
+        self.logger.info("═══ SESSION START ═══")
         self.info("Logger initialized")
     
+    def _cleanup_old_logs(self, max_age_days: int) -> None:
+        """Delete log files older than *max_age_days* from the log directory."""
+        if max_age_days <= 0:
+            return
+        cutoff = datetime.now() - timedelta(days=max_age_days)
+        try:
+            for filename in os.listdir(self.log_dir):
+                if not filename.startswith("coc_bot_") or not filename.endswith(".log"):
+                    continue
+                filepath = os.path.join(self.log_dir, filename)
+                try:
+                    mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
+                    if mtime < cutoff:
+                        os.remove(filepath)
+                except OSError:
+                    pass
+        except OSError:
+            pass
+
     def _setup_logging(self) -> None:
         """Setup logging configuration"""
         # Create formatter

@@ -40,6 +40,12 @@ class AIAnalyzer:
                 "⚠️ AI Analyzer: No API key provided. "
                 "Set 'ai_analyzer.google_gemini_api_key' in config.json or disable AI analysis."
             )
+
+    def update_model(self, model: str) -> None:
+        """Update the active Gemini model and recalculate the API endpoint URL."""
+        self.model = model or self._DEFAULT_MODEL
+        self.base_url = self._BASE_URL_TEMPLATE.format(model=self.model)
+        self.logger.info(f"🤖 AI model updated to '{self.model}'")
     
     def analyze_base(self, screenshot_path: str, min_gold: int = 300000, 
                     min_elixir: int = 300000, min_dark: int = 2000,

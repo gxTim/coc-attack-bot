@@ -26,7 +26,8 @@ except ImportError:
 class AttackRecorder:
     """Records attack sessions including mouse movements, clicks, and timing"""
     
-    def __init__(self, auto_detect_clicks: bool = True, troop_bar_config: Optional[Dict] = None):
+    def __init__(self, auto_detect_clicks: bool = True, troop_bar_config: Optional[Dict] = None,
+                 logger=None):
         self.recordings_dir = "recordings"
         self.current_recording = []
         self.recording_thread = None
@@ -35,6 +36,9 @@ class AttackRecorder:
         self.session_name = None
         self.auto_detect_clicks = auto_detect_clicks
         self._last_click_time = 0
+        self._config_warned = False
+        self._fallback_warned = False
+        self._logger = logger
         
         # Troop bar configuration (will be resolved when recording starts)
         self._troop_bar_config = troop_bar_config or {}
@@ -42,21 +46,28 @@ class AttackRecorder:
         # Create recordings directory
         os.makedirs(self.recordings_dir, exist_ok=True)
         
-        print("Attack Recorder initialized")
-        print("Recording Controls:")
-        print("  F5 - Start/Stop recording")
-        print("  F6 - Manual click recording (backup method)")
-        print("  F7 - Add delay marker")
-        print("  ESC - Cancel recording")
+        self._log("Attack Recorder initialized")
+        self._log("Recording Controls:")
+        self._log("  F5 - Start/Stop recording")
+        self._log("  F6 - Manual click recording (backup method)")
+        self._log("  F7 - Add delay marker")
+        self._log("  ESC - Cancel recording")
         if self.auto_detect_clicks:
-            print("✅ Auto-click detection is ENABLED - clicks will be recorded automatically")
+            self._log("✅ Auto-click detection is ENABLED - clicks will be recorded automatically")
         else:
-            print("⚠️ Auto-click detection is DISABLED (use F6 for manual recording)")
+            self._log("⚠️ Auto-click detection is DISABLED (use F6 for manual recording)", "warning")
+
+    def _log(self, msg: str, level: str = "info") -> None:
+        """Log via Logger if available, otherwise print."""
+        if self._logger:
+            getattr(self._logger, level)(msg)
+        else:
+            print(msg)
     
     def start_recording(self, session_name: str) -> None:
         """Start recording an attack session"""
         if self.is_recording:
-            print("Already recording a session")
+            self._log("Already recording a session")
             return
         
         self.session_name = session_name
@@ -64,23 +75,23 @@ class AttackRecorder:
         self.is_recording = True
         self.start_time = time.time()
         
-        print(f"\n=== RECORDING ATTACK SESSION: {session_name} ===")
-        print("Instructions:")
+        self._log(f"\n=== RECORDING ATTACK SESSION: {session_name} ===")
+        self._log("Instructions:")
         if self.auto_detect_clicks:
-            print("1. Perform your attack as normal")
-            print("2. All clicks will be recorded automatically")
-            print("3. Press F7 to add delays between actions")
-            print("4. Press F5 to stop recording")
-            print("5. Press ESC to cancel")
-            print("\nRECORDING STARTED - Auto-detection enabled...")
+            self._log("1. Perform your attack as normal")
+            self._log("2. All clicks will be recorded automatically")
+            self._log("3. Press F7 to add delays between actions")
+            self._log("4. Press F5 to stop recording")
+            self._log("5. Press ESC to cancel")
+            self._log("\nRECORDING STARTED - Auto-detection enabled...")
         else:
-            print("1. Navigate to your attack position")
-            print("2. Press F6 to record each click manually")
-            print("3. Press F7 to add delays between actions")
-            print("4. Press F5 to stop recording")
-            print("5. Press ESC to cancel")
-            print("\nRECORDING STARTED - Use F6 to record clicks...")
-            print("(Auto-click detection is disabled)")
+            self._log("1. Navigate to your attack position")
+            self._log("2. Press F6 to record each click manually")
+            self._log("3. Press F7 to add delays between actions")
+            self._log("4. Press F5 to stop recording")
+            self._log("5. Press ESC to cancel")
+            self._log("\nRECORDING STARTED - Use F6 to record clicks...")
+            self._log("(Auto-click detection is disabled)")
         
         # Start the recording thread
         self.recording_thread = threading.Thread(target=self._recording_loop)
@@ -90,7 +101,7 @@ class AttackRecorder:
     def stop_recording(self) -> Optional[str]:
         """Stop the current recording and save it"""
         if not self.is_recording:
-            print("No recording session active")
+            self._log("No recording session active")
             return None
         
         self.is_recording = False
@@ -100,11 +111,11 @@ class AttackRecorder:
         
         if self.current_recording:
             filepath = self._save_recording(self.session_name, self.current_recording)
-            print(f"\nRecording saved: {filepath}")
-            print(f"Total actions recorded: {len(self.current_recording)}")
+            self._log(f"\nRecording saved: {filepath}")
+            self._log(f"Total actions recorded: {len(self.current_recording)}")
             return filepath
         else:
-            print("No actions recorded")
+            self._log("No actions recorded")
             return None
     
     def _recording_loop(self) -> None:
@@ -117,12 +128,12 @@ class AttackRecorder:
                 
                 # Check for manual recording hotkeys
                 if keyboard.is_pressed('esc'):
-                    print("\nRecording cancelled")
+                    self._log("\nRecording cancelled")
                     self.is_recording = False
                     break
                 
                 if keyboard.is_pressed('f5'):
-                    print("\nStopping recording")
+                    self._log("\nStopping recording")
                     self.is_recording = False
                     break
                 
@@ -139,7 +150,7 @@ class AttackRecorder:
                     # Add delay marker using a fixed default to avoid blocking the thread
                     delay = 1.0
                     self._add_action('delay', 0, 0, current_time, {'duration': delay})
-                    print(f"Added {delay}s delay")
+                    self._log(f"Added {delay}s delay")
                     
                     # Wait for key release
                     while keyboard.is_pressed('f7'):
@@ -167,8 +178,8 @@ class AttackRecorder:
                                     self._record_click(x, y, current_time)
                                     self._last_click_time = current_time
                         except (AttributeError, TypeError):
-                            if not hasattr(self, '_fallback_warned'):
-                                print("⚠️ Auto-click detection failed - use F6 to manually record clicks")
+                            if not self._fallback_warned:
+                                self._log("⚠️ Auto-click detection failed - use F6 to manually record clicks", "warning")
                                 self._fallback_warned = True
                 
                 # Track significant mouse movements
@@ -180,22 +191,21 @@ class AttackRecorder:
                         self._add_action('move', mx, my, current_time)
                     last_mouse_pos = current_mouse_pos
                 
-                time.sleep(0.05)  # 20 FPS recording
+                time.sleep(0.1)  # 10 FPS polling — well within 150ms click debounce window
         
         except Exception as e:
-            print(f"Recording error: {e}")
+            self._log(f"Recording error: {e}", "error")
             self.is_recording = False
     
     def set_troop_bar_config(self, cfg: Dict) -> None:
         """Update the troop bar configuration and reset the one-shot warning flag."""
         self._troop_bar_config = cfg
         self._config_warned = False
-
     def toggle_auto_click_detection(self) -> bool:
         """Toggle auto-click detection on/off"""
         self.auto_detect_clicks = not self.auto_detect_clicks
         status = "ENABLED" if self.auto_detect_clicks else "DISABLED"
-        print(f"Auto-click detection: {status}")
+        self._log(f"Auto-click detection: {status}")
         return self.auto_detect_clicks
     
     def _get_troop_bar_bounds(self) -> Dict:
@@ -240,19 +250,19 @@ class AttackRecorder:
 
     def _validate_troop_bar_config(self) -> None:
         """Warn once if the troop bar config looks wrong for the current screen resolution."""
-        if getattr(self, '_config_warned', False):
+        if self._config_warned:
             return
         self._config_warned = True
         bounds = self._get_troop_bar_bounds()
         screen_width, _ = pyautogui.size()
         total_bar_width = bounds['num_slots'] * bounds['slot_width']
         if total_bar_width < screen_width * 0.1:
-            print("⚠️ WARNING: Troop bar config seems too narrow for your screen resolution!")
-            print(f"   Screen width: {screen_width}px, Troop bar width: {total_bar_width}px")
-            print("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.")
+            self._log("⚠️ WARNING: Troop bar config seems too narrow for your screen resolution!", "warning")
+            self._log(f"   Screen width: {screen_width}px, Troop bar width: {total_bar_width}px", "warning")
+            self._log("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.", "warning")
         if bounds['x_start'] == 0 and screen_width > 1920:
-            print("⚠️ WARNING: Troop bar x_start is 0 — this is likely wrong for your resolution!")
-            print("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.")
+            self._log("⚠️ WARNING: Troop bar x_start is 0 — this is likely wrong for your resolution!", "warning")
+            self._log("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.", "warning")
 
     def _get_slot_index(self, x: int, bounds: Dict) -> int:
         """Return 0-based slot index for an x coordinate within the troop bar."""
@@ -283,7 +293,7 @@ class AttackRecorder:
             screenshot.save(icon_path)
             return icon_path
         except Exception as e:
-            print(f"⚠️ Could not capture troop icon for slot {slot_index}: {e}")
+            self._log(f"⚠️ Could not capture troop icon for slot {slot_index}: {e}", "warning")
             return None
 
     def _record_click(self, x: int, y: int, timestamp: float) -> None:
@@ -295,7 +305,7 @@ class AttackRecorder:
         """
         screen_width, screen_height = pyautogui.size()
         if x < 0 or y < 0 or x >= screen_width or y >= screen_height:
-            print(f"⚠️ Skipping click at ({x}, {y}) — out of screen bounds")
+            self._log(f"⚠️ Skipping click at ({x}, {y}) — out of screen bounds", "warning")
             return
         self._validate_troop_bar_config()
         bounds = self._get_troop_bar_bounds()
@@ -308,10 +318,10 @@ class AttackRecorder:
             if icon_path:
                 extra['troop_icon'] = icon_path
             self._add_action('troop_select', x, y, timestamp, extra)
-            print(f"🪖 Troop select recorded at ({x}, {y}) — slot {slot_index}")
+            self._log(f"🪖 Troop select recorded at ({x}, {y}) — slot {slot_index}")
         else:
             self._add_action('click', x, y, timestamp)
-            print(f"🖱️ Click recorded at ({x}, {y})")
+            self._log(f"🖱️ Click recorded at ({x}, {y})")
 
     def _add_action(self, action_type: str, x: int, y: int, timestamp: float, extra_data: Optional[Dict] = None) -> None:
         """Add an action to the current recording"""
@@ -350,7 +360,7 @@ class AttackRecorder:
                 json.dump(recording_data, f, indent=2)
             return filepath
         except Exception as e:
-            print(f"Error saving recording: {e}")
+            self._log(f"Error saving recording: {e}", "error")
             return ""
     
     def list_sessions(self) -> List[str]:
@@ -370,14 +380,14 @@ class AttackRecorder:
         filepath = os.path.join(self.recordings_dir, f"{session_name}.json")
         
         if not os.path.exists(filepath):
-            print(f"Recording not found: {session_name}")
+            self._log(f"Recording not found: {session_name}", "error")
             return None
         
         try:
             with open(filepath, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading recording: {e}")
+            self._log(f"Error loading recording: {e}", "error")
             return None
     
     def delete_recording(self, session_name: str) -> bool:
@@ -385,15 +395,15 @@ class AttackRecorder:
         filepath = os.path.join(self.recordings_dir, f"{session_name}.json")
         
         if not os.path.exists(filepath):
-            print(f"Recording not found: {session_name}")
+            self._log(f"Recording not found: {session_name}", "error")
             return False
         
         try:
             os.remove(filepath)
-            print(f"Deleted recording: {session_name}")
+            self._log(f"Deleted recording: {session_name}")
             return True
         except Exception as e:
-            print(f"Error deleting recording: {e}")
+            self._log(f"Error deleting recording: {e}", "error")
             return False
     
     def get_recording_info(self, session_name: str) -> Optional[Dict]:

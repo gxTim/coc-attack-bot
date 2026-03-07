@@ -117,9 +117,21 @@ class StarCanvas(tk.Canvas):
         super().__init__(parent, bg=BG_MAIN, highlightthickness=0, **kwargs)
         self.stars: list = []
         self._glow_ids: list = []
+        self._animating = False
         self._create_stars(60)
         self.bind("<Configure>", self._on_resize)
-        self._animate()
+        # Animation is started externally via start_animation() to avoid
+        # running on all pages simultaneously when only one is visible.
+
+    def start_animation(self) -> None:
+        """Begin (or resume) the star animation loop."""
+        if not self._animating:
+            self._animating = True
+            self._animate()
+
+    def stop_animation(self) -> None:
+        """Pause the star animation loop."""
+        self._animating = False
 
     def _create_stars(self, count: int) -> None:
         for _ in range(count):
@@ -174,6 +186,8 @@ class StarCanvas(tk.Canvas):
         self._add_glow(w, h)
 
     def _animate(self) -> None:
+        if not self._animating:
+            return
         try:
             if not self.winfo_exists():
                 return
@@ -1492,6 +1506,14 @@ class BotGUI:
 
     def show_page(self, page_name: str) -> None:
         """Raise the selected page and update sidebar button states."""
+        # Stop animation on all pages; start only the visible one
+        for key, page in self.pages.items():
+            canvas = getattr(page, '_star_canvas', None)
+            if canvas is not None:
+                if key == page_name:
+                    canvas.start_animation()
+                else:
+                    canvas.stop_animation()
         self.pages[page_name].tkraise()
         for key, btn in self._nav_buttons.items():
             if key == page_name:

@@ -7,17 +7,18 @@ import os
 import time
 import pyautogui
 import keyboard
-from typing import Dict, List, Tuple, Optional
-from datetime import datetime
+from typing import Dict, Optional
+
 
 class CoordinateMapper:
     """Records and manages button coordinates for automated clicking"""
     
-    def __init__(self):
+    def __init__(self, logger=None):
         self.coordinates_dir = "coordinates"
         self.coordinates_file = os.path.join(self.coordinates_dir, "button_coordinates.json")
         self.coordinates = {}
         self.is_mapping = False
+        self._logger = logger
         
         # Create coordinates directory
         os.makedirs(self.coordinates_dir, exist_ok=True)
@@ -25,12 +26,19 @@ class CoordinateMapper:
         # Load existing coordinates
         self.load_coordinates()
         
-        print("Coordinate Mapper initialized")
-        print("Mapping Controls:")
-        print("  F1 - Start/Stop coordinate mapping")
-        print("  F2 - Record current mouse position")
-        print("  F3 - Save coordinates")
-        print("  ESC - Cancel mapping")
+        self._log("Coordinate Mapper initialized")
+        self._log("Mapping Controls:")
+        self._log("  F1 - Start/Stop coordinate mapping")
+        self._log("  F2 - Record current mouse position")
+        self._log("  F3 - Save coordinates")
+        self._log("  ESC - Cancel mapping")
+
+    def _log(self, msg: str, level: str = "info") -> None:
+        """Log via Logger if available, otherwise print."""
+        if self._logger:
+            getattr(self._logger, level)(msg)
+        else:
+            print(msg)
     
     def load_coordinates(self) -> None:
         """Load coordinates from file"""
@@ -38,12 +46,12 @@ class CoordinateMapper:
             try:
                 with open(self.coordinates_file, 'r') as f:
                     self.coordinates = json.load(f)
-                print(f"Loaded {len(self.coordinates)} coordinate mappings")
+                self._log(f"Loaded {len(self.coordinates)} coordinate mappings")
             except Exception as e:
-                print(f"Error loading coordinates: {e}")
+                self._log(f"Error loading coordinates: {e}", "error")
                 self.coordinates = {}
         else:
-            print("No existing coordinates file found")
+            self._log("No existing coordinates file found")
     
     def save_coordinates(self, name: Optional[str] = None, coords: Optional[Dict] = None) -> None:
         """Save coordinates to file"""
@@ -58,10 +66,10 @@ class CoordinateMapper:
             with open(self.coordinates_file, 'w') as f:
                 json.dump(self.coordinates, f, indent=2)
             
-            print(f"Coordinates saved to {self.coordinates_file}")
-            print(f"Total mappings: {len(self.coordinates)}")
+            self._log(f"Coordinates saved to {self.coordinates_file}")
+            self._log(f"Total mappings: {len(self.coordinates)}")
         except Exception as e:
-            print(f"Error saving coordinates: {e}")
+            self._log(f"Error saving coordinates: {e}", "error")
     
     def start_mapping(self, prompt_callback=None) -> None:
         """Start interactive coordinate mapping.
@@ -75,27 +83,27 @@ class CoordinateMapper:
                 for console-mode compatibility.
         """
         if self.is_mapping:
-            print("Already in mapping mode")
+            self._log("Already in mapping mode")
             return
         
         self.is_mapping = True
         current_session = {}
         
-        print("\n=== COORDINATE MAPPING MODE ===")
-        print("Instructions:")
-        print("1. Move mouse to the button you want to map")
-        print("2. Press F2 to record the position")
-        print("3. Enter a name for the button")
-        print("4. Repeat for all buttons")
-        print("5. Press F3 to save all mappings")
-        print("6. Press ESC to cancel")
-        print("\nStarting in 3 seconds...")
+        self._log("\n=== COORDINATE MAPPING MODE ===")
+        self._log("Instructions:")
+        self._log("1. Move mouse to the button you want to map")
+        self._log("2. Press F2 to record the position")
+        self._log("3. Enter a name for the button")
+        self._log("4. Repeat for all buttons")
+        self._log("5. Press F3 to save all mappings")
+        self._log("6. Press ESC to cancel")
+        self._log("\nStarting in 3 seconds...")
         time.sleep(3)
         
         try:
             while self.is_mapping:
                 if keyboard.is_pressed('esc'):
-                    print("\nMapping cancelled")
+                    self._log("\nMapping cancelled")
                     break
                 
                 if keyboard.is_pressed('f2'):
@@ -109,8 +117,8 @@ class CoordinateMapper:
                     
                     if button_name:
                         current_session[button_name] = {"x": x, "y": y}
-                        print(f"Recorded '{button_name}' at ({x}, {y})")
-                        print(f"Session mappings: {len(current_session)}")
+                        self._log(f"Recorded '{button_name}' at ({x}, {y})")
+                        self._log(f"Session mappings: {len(current_session)}")
                     
                     # Wait for key release
                     while keyboard.is_pressed('f2'):
@@ -121,10 +129,10 @@ class CoordinateMapper:
                     if current_session:
                         self.coordinates.update(current_session)
                         self.save_coordinates()
-                        print(f"\nSaved {len(current_session)} new mappings")
+                        self._log(f"\nSaved {len(current_session)} new mappings")
                         current_session.clear()
                     else:
-                        print("\nNo mappings to save")
+                        self._log("\nNo mappings to save")
                     
                     # Wait for key release
                     while keyboard.is_pressed('f3'):
@@ -132,17 +140,17 @@ class CoordinateMapper:
                 
                 if keyboard.is_pressed('f1'):
                     # Toggle mapping mode
-                    print("\nExiting mapping mode")
+                    self._log("\nExiting mapping mode")
                     break
                 
                 time.sleep(0.1)
         
         except KeyboardInterrupt:
-            print("\nMapping interrupted")
+            self._log("\nMapping interrupted")
         
         finally:
             self.is_mapping = False
-            print("Coordinate mapping stopped")
+            self._log("Coordinate mapping stopped")
             
             # Save any remaining mappings
             if current_session:
@@ -157,36 +165,43 @@ class CoordinateMapper:
                         self.save_coordinates()
     
     def get_coordinates(self, button_name: Optional[str] = None) -> Dict:
-        """Get coordinates for a specific button or all buttons"""
+        """Get coordinates for a specific button or all buttons.
+
+        When called without arguments, returns the internal dictionary directly
+        for read-only access (no copy).  Callers must not mutate the returned
+        dict; use :py:meth:`add_coordinate` or :py:meth:`remove_coordinate` to
+        modify mappings.
+        """
         if button_name:
             return self.coordinates.get(button_name, {})
-        return self.coordinates.copy()
+        return self.coordinates
     
     def add_coordinate(self, name: str, x: int, y: int) -> None:
         """Add a single coordinate mapping"""
         self.coordinates[name] = {"x": x, "y": y}
-        print(f"Added coordinate '{name}' at ({x}, {y})")
+        self._log(f"Added coordinate '{name}' at ({x}, {y})")
     
     def remove_coordinate(self, name: str) -> bool:
         """Remove a coordinate mapping"""
         if name in self.coordinates:
             del self.coordinates[name]
-            print(f"Removed coordinate '{name}'")
+            self.save_coordinates()
+            self._log(f"Removed coordinate '{name}'")
             return True
         else:
-            print(f"Coordinate '{name}' not found")
+            self._log(f"Coordinate '{name}' not found")
             return False
     
     def list_coordinates(self) -> None:
         """Print all mapped coordinates"""
         if not self.coordinates:
-            print("No coordinates mapped yet")
+            self._log("No coordinates mapped yet")
             return
         
-        print("\n=== MAPPED COORDINATES ===")
+        self._log("\n=== MAPPED COORDINATES ===")
         for name, coords in self.coordinates.items():
-            print(f"  {name}: ({coords['x']}, {coords['y']})")
-        print(f"Total: {len(self.coordinates)} mappings")
+            self._log(f"  {name}: ({coords['x']}, {coords['y']})")
+        self._log(f"Total: {len(self.coordinates)} mappings")
     
     def validate_coordinates(self) -> Dict[str, bool]:
         """Validate that all coordinates are within screen bounds"""
@@ -199,7 +214,7 @@ class CoordinateMapper:
             validation[name] = is_valid
             
             if not is_valid:
-                print(f"WARNING: Coordinate '{name}' ({x}, {y}) is outside screen bounds")
+                self._log(f"WARNING: Coordinate '{name}' ({x}, {y}) is outside screen bounds", "warning")
         
         return validation
     
@@ -208,9 +223,9 @@ class CoordinateMapper:
         try:
             with open(filepath, 'w') as f:
                 json.dump(self.coordinates, f, indent=2)
-            print(f"Coordinates exported to {filepath}")
+            self._log(f"Coordinates exported to {filepath}")
         except Exception as e:
-            print(f"Error exporting coordinates: {e}")
+            self._log(f"Error exporting coordinates: {e}", "error")
     
     def import_coordinates(self, filepath: str, merge: bool = True) -> None:
         """Import coordinates from a file"""
@@ -220,11 +235,11 @@ class CoordinateMapper:
             
             if merge:
                 self.coordinates.update(imported_coords)
-                print(f"Merged {len(imported_coords)} coordinates")
+                self._log(f"Merged {len(imported_coords)} coordinates")
             else:
                 self.coordinates = imported_coords
-                print(f"Replaced with {len(imported_coords)} coordinates")
+                self._log(f"Replaced with {len(imported_coords)} coordinates")
             
             self.save_coordinates()
         except Exception as e:
-            print(f"Error importing coordinates: {e}") 
+            self._log(f"Error importing coordinates: {e}", "error") 

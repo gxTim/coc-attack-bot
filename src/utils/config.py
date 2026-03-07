@@ -64,6 +64,14 @@ class Config:
         parent, leaf = self._resolve(key)
         parent[leaf] = value
 
+    def set_and_save(self, key: str, value: Any) -> None:
+        """Set a configuration value and immediately persist it to disk.
+
+        Use this for critical settings that must survive an unexpected crash.
+        """
+        self.set(key, value)
+        self.save_config()
+
     def save_config(self) -> None:
         """Persist current configuration to file."""
         try:

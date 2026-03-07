@@ -831,7 +831,7 @@ class PlaybackPage(ctk.CTkFrame):
         self._play_thread.start()
 
     def _stop_playback(self):
-        self.bot.is_playing = False
+        self.bot.attack_player.stop_playback()
         self._on_play_done()
 
     def _on_play_done(self):

@@ -160,7 +160,8 @@ class BotController:
         self.logger.info("Shutting down Bot Controller")
         if self.is_recording:
             self.stop_attack_recording()
-        if self.is_playing:
-            self.is_playing = False
+        with self._state_lock:
+            if self.is_playing:
+                self.is_playing = False
         if self.auto_attacker.is_running:
             self.stop_auto_attack() 

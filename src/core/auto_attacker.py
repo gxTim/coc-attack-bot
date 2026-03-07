@@ -798,6 +798,14 @@ class AutoAttacker:
         home_coord = coords['return_home']
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
+            # When template-based detection is unavailable, capture the pixel
+            # colour before clicking so we can detect whether anything changed.
+            pre_click_pixel = None
+            if already_home is None:
+                pre_click_pixel = self.screen_capture.get_pixel_color(
+                    home_coord['x'], home_coord['y']
+                )
+
             self.logger.info(
                 f"Clicking return_home at ({home_coord['x']}, {home_coord['y']}) "
                 f"(attempt {attempt}/{max_attempts})"
@@ -810,6 +818,23 @@ class AutoAttacker:
             if self._is_on_home_base() is True:
                 self.logger.info("✅ Returned to home base")
                 return
+
+            # Pixel-based fallback: if the pixel at the return_home position
+            # didn't change after clicking, the button was most likely not
+            # present — meaning we are already on the home base.
+            if pre_click_pixel is not None:
+                post_click_pixel = self.screen_capture.get_pixel_color(
+                    home_coord['x'], home_coord['y']
+                )
+                color_diff = sum(
+                    abs(post_click_pixel[i] - pre_click_pixel[i]) for i in range(3)
+                )
+                if color_diff < _PIXEL_COLOR_DIFF_THRESHOLD:
+                    self.logger.info(
+                        "✅ Already on home base "
+                        "(no pixel change after clicking return_home)"
+                    )
+                    return
 
             # Give the game a moment to respond; if we're on the last attempt
             # we treat the click as successful regardless.

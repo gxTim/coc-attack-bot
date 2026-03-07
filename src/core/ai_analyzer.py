@@ -192,6 +192,10 @@ Respond in this exact JSON format:
             }
         }
 
+        # NOTE: Google Gemini API requires the API key as a URL parameter (?key=...).
+        # This is the documented authentication method per Google's API design.
+        # The full URL (including the key) is intentionally not logged to avoid
+        # leaking credentials in log files.
         url = f"{self.base_url}?key={self.api_key}"
         max_retries = 3
         default_retry_delay = 10  # seconds

@@ -7,17 +7,19 @@ import cv2
 import numpy as np
 import time
 import os
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, Dict
 from datetime import datetime
 import win32gui
 
 class ScreenCapture:
     """Handles screen capture and game window detection"""
     
-    def __init__(self):
+    def __init__(self, logger=None):
         self.screenshot_dir = "screenshots"
         self.game_window_title = "Clash of Clans"
         self.game_window_bounds = None
+        self._template_cache: Dict[str, np.ndarray] = {}
+        self._logger = logger
         
         # Create screenshots directory
         os.makedirs(self.screenshot_dir, exist_ok=True)
@@ -25,6 +27,13 @@ class ScreenCapture:
         # Configure pyautogui
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 0.1
+
+    def _log(self, msg: str, level: str = "info") -> None:
+        """Log via Logger if available, otherwise print."""
+        if self._logger:
+            getattr(self._logger, level)(msg)
+        else:
+            print(msg)
     
     def find_game_window(self) -> Optional[Tuple[int, int, int, int]]:
         """Find the COC game window and return its bounds (x, y, width, height)"""
@@ -45,10 +54,10 @@ class ScreenCapture:
             width = right - x
             height = bottom - y
             self.game_window_bounds = (x, y, width, height)
-            print(f"Found game window: {title} at ({x}, {y}, {width}, {height})")
+            self._log(f"Found game window: {title} at ({x}, {y}, {width}, {height})")
             return self.game_window_bounds
         
-        print("Could not find COC game window. Make sure the game is running.")
+        self._log("Could not find COC game window. Make sure the game is running.")
         return None
     
     def capture_screen(self, region: Optional[Tuple[int, int, int, int]] = None) -> str:
@@ -71,7 +80,7 @@ class ScreenCapture:
                 screenshot = pyautogui.screenshot()
         
         screenshot.save(filepath)
-        print(f"Screenshot saved: {filepath}")
+        self._log(f"Screenshot saved: {filepath}")
         return filepath
     
     def capture_game_screen(self) -> Optional[str]:
@@ -97,12 +106,14 @@ class ScreenCapture:
         # Convert to OpenCV format
         screenshot_cv = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
         
-        # Load template
+        # Load template (from cache if available)
         if not os.path.exists(template_path):
-            print(f"Template not found: {template_path}")
+            self._log(f"Template not found: {template_path}")
             return None
-            
-        template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+
+        template = self._load_template(template_path)
+        if template is None:
+            return None
         
         # Perform template matching
         result = cv2.matchTemplate(screenshot_cv, template, cv2.TM_CCOEFF_NORMED)
@@ -122,6 +133,16 @@ class ScreenCapture:
             return (center_x, center_y)
         
         return None
+
+    def _load_template(self, template_path: str) -> Optional[np.ndarray]:
+        """Load a template image, using the in-memory cache to avoid repeated disk reads."""
+        if template_path not in self._template_cache:
+            template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+            if template is None:
+                self._log(f"Failed to load template: {template_path}", "error")
+                return None
+            self._template_cache[template_path] = template
+        return self._template_cache[template_path]
     
     def wait_for_template(self, template_path: str, timeout: int = 30, threshold: float = 0.8, region: Optional[Tuple[int, int, int, int]] = None) -> Optional[Tuple[int, int]]:
         """
@@ -136,14 +157,14 @@ class ScreenCapture:
                 return coords
             time.sleep(0.5)
         
-        print(f"Template not found within timeout: {template_path}")
+        self._log(f"Template not found within timeout: {template_path}")
         return None
     
     def get_pixel_color(self, x: int, y: int) -> Tuple[int, int, int]:
         """Get the RGB color of a pixel at specified coordinates"""
-        screenshot = pyautogui.screenshot()
-        pixel = screenshot.getpixel((x, y))
-        return pixel
+        # Use pyautogui.pixel() for a fast single-pixel query instead of a
+        # full-screen screenshot, which is far more efficient.
+        return pyautogui.pixel(x, y)
     
     def save_template(self, region: Tuple[int, int, int, int], name: str) -> str:
         """Save a region of the screen as a template for later matching"""
@@ -154,5 +175,5 @@ class ScreenCapture:
         filepath = os.path.join(template_dir, f"{name}.png")
         screenshot.save(filepath)
         
-        print(f"Template saved: {filepath}")
+        self._log(f"Template saved: {filepath}")
         return filepath 

@@ -30,55 +30,65 @@ class AttackPlayer:
     
     def __init__(self, attack_recorder: Optional[AttackRecorder] = None,
                  troop_bar_config: Optional[Dict] = None,
-                 deployment_zone: Optional[Dict] = None):
+                 deployment_zone: Optional[Dict] = None,
+                 logger=None):
         self.attack_recorder = attack_recorder if attack_recorder is not None else AttackRecorder()
         self.is_playing = False
         self.current_playback = None
         self.playback_thread = None
         self.playback_speed = 1.0
         self.slot_mapping: Dict[int, int] = {}
+        self._config_warned = False
+        self._logger = logger
 
         # Troop bar and deployment zone configuration
         self._troop_bar_config = troop_bar_config or {}
         self._deployment_zone = deployment_zone  # Optional {x_min, y_min, x_max, y_max}
         
-        print("Attack Player initialized")
-        print("Playback Controls:")
-        print("  F8 - Pause/Resume playback")
-        print("  F9 - Stop playback")
-        print("  ESC - Emergency stop")
+        self._log("Attack Player initialized")
+        self._log("Playback Controls:")
+        self._log("  F8 - Pause/Resume playback")
+        self._log("  F9 - Stop playback")
+        self._log("  ESC - Emergency stop")
+
+    def _log(self, msg: str, level: str = "info") -> None:
+        """Log via Logger if available, otherwise print."""
+        if self._logger:
+            getattr(self._logger, level)(msg)
+        else:
+            print(msg)
     
     def play_attack(self, session_name: str, speed: float = 1.0, auto_mode: bool = False) -> bool:
         """Play back a recorded attack session"""
         if self.is_playing:
-            print("Already playing an attack")
+            self._log("Already playing an attack")
             return False
         
         # Load the recording
         recording = self.attack_recorder.load_recording(session_name)
         if not recording:
-            print(f"Could not load recording: {session_name}")
+            self._log(f"Could not load recording: {session_name}", "error")
             return False
         
         self.current_playback = recording
         self.playback_speed = speed
         self.is_playing = True
         
-        print(f"\n=== PLAYING ATTACK SESSION: {session_name} ===")
-        print(f"Duration: {recording.get('duration', 0):.1f} seconds")
-        print(f"Actions: {len(recording.get('actions', []))}")
-        print(f"Speed: {speed}x")
+        self._log(f"\n=== PLAYING ATTACK SESSION: {session_name} ===")
+        self._log(f"Duration: {recording.get('duration', 0):.1f} seconds")
+        self._log(f"Actions: {len(recording.get('actions', []))}")
+        self._log(f"Speed: {speed}x")
 
         # Build troop slot remapping before playback starts
         actions = recording.get('actions', [])
         self.slot_mapping = self._build_troop_slot_mapping(actions)
         
         if not auto_mode:
-            print("\nStarting playback in 3 seconds...")
-            print("Press F8 to pause, F9 to stop, ESC for emergency stop")
+            self._log("\nStarting playback in 3 seconds...")
+            self._log("Press F8 to pause, F9 to stop, ESC for emergency stop")
             time.sleep(3)
         else:
-            print("\nStarting playback immediately (auto mode)...")
+            self._log("\nStarting playback immediately (auto mode)...")
         
         # Start playback thread
         self.playback_thread = threading.Thread(
@@ -93,10 +103,10 @@ class AttackPlayer:
     def stop_playback(self) -> None:
         """Stop the current playback"""
         if not self.is_playing:
-            print("No playback active")
+            self._log("No playback active")
             return
         
-        print("Stopping playback")
+        self._log("Stopping playback")
         self.is_playing = False
         
         if self.playback_thread:
@@ -114,17 +124,17 @@ class AttackPlayer:
                 
                 # Check for control keys
                 if keyboard.is_pressed('esc'):
-                    print("\nEmergency stop activated")
+                    self._log("\nEmergency stop activated")
                     break
                 
                 if keyboard.is_pressed('f9'):
-                    print("\nPlayback stopped by user")
+                    self._log("\nPlayback stopped by user")
                     break
                 
                 if keyboard.is_pressed('f8'):
                     paused = not paused
                     status = "paused" if paused else "resumed"
-                    print(f"\nPlayback {status}")
+                    self._log(f"\nPlayback {status}")
                     
                     # Wait for key release
                     while keyboard.is_pressed('f8'):
@@ -135,7 +145,7 @@ class AttackPlayer:
                     time.sleep(0.1)
                     if keyboard.is_pressed('f8'):
                         paused = False
-                        print("Playback resumed")
+                        self._log("Playback resumed")
                         while keyboard.is_pressed('f8'):
                             time.sleep(0.1)
                 
@@ -155,20 +165,19 @@ class AttackPlayer:
                 
                 # Progress indicator
                 progress = (i + 1) / len(actions) * 100
-                print(f"\rProgress: {progress:.1f}% ({i + 1}/{len(actions)})", end='', flush=True)
+                self._log(f"\rProgress: {progress:.1f}% ({i + 1}/{len(actions)})")
         
         except Exception as e:
-            print(f"\nPlayback error: {e}")
+            self._log(f"\nPlayback error: {e}", "error")
         
         finally:
             self.is_playing = False
-            print(f"\nPlayback completed")
+            self._log(f"\nPlayback completed")
     
     def set_troop_bar_config(self, cfg: Dict) -> None:
         """Update the troop bar configuration and reset the one-shot warning flag."""
         self._troop_bar_config = cfg
         self._config_warned = False
-
     def _get_troop_bar_bounds(self) -> Dict:
         """Get troop bar region bounds resolved against current screen size."""
         screen_width, screen_height = pyautogui.size()
@@ -205,19 +214,19 @@ class AttackPlayer:
 
     def _validate_troop_bar_config(self) -> None:
         """Warn once if the troop bar config looks wrong for the current screen resolution."""
-        if getattr(self, '_config_warned', False):
+        if self._config_warned:
             return
         self._config_warned = True
         bounds = self._get_troop_bar_bounds()
         screen_width, _ = pyautogui.size()
         total_bar_width = bounds['num_slots'] * bounds['slot_width']
         if total_bar_width < screen_width * 0.1:
-            print("⚠️ WARNING: Troop bar config seems too narrow for your screen resolution!")
-            print(f"   Screen width: {screen_width}px, Troop bar width: {total_bar_width}px")
-            print("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.")
+            self._log("⚠️ WARNING: Troop bar config seems too narrow for your screen resolution!", "warning")
+            self._log(f"   Screen width: {screen_width}px, Troop bar width: {total_bar_width}px", "warning")
+            self._log("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.", "warning")
         if bounds['x_start'] == 0 and screen_width > 1920:
-            print("⚠️ WARNING: Troop bar x_start is 0 — this is likely wrong for your resolution!")
-            print("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.")
+            self._log("⚠️ WARNING: Troop bar x_start is 0 — this is likely wrong for your resolution!", "warning")
+            self._log("   Run 'Calibrate Troop Bar' from the Auto Attack menu to fix this.", "warning")
 
     def _build_troop_slot_mapping(self, recording_actions: List[Dict]) -> Dict[int, int]:
         """
@@ -246,10 +255,10 @@ class AttackPlayer:
         y_min = bounds['y_min']
         bar_height = bounds['y_max'] - y_min
 
-        print(f"🔍 Building troop slot mapping...")
-        print(f"   Troop bar region: x={x_start}, y={y_min}, width={num_slots * slot_width}, height={bar_height}")
-        print(f"   Number of slots: {num_slots}, slot width: {slot_width}px")
-        print(f"   Found {len(troop_actions)} unique troop_select action(s) with icons")
+        self._log(f"🔍 Building troop slot mapping...")
+        self._log(f"   Troop bar region: x={x_start}, y={y_min}, width={num_slots * slot_width}, height={bar_height}")
+        self._log(f"   Number of slots: {num_slots}, slot width: {slot_width}px")
+        self._log(f"   Found {len(troop_actions)} unique troop_select action(s) with icons")
 
         try:
             # Capture the current troop bar
@@ -262,9 +271,9 @@ class AttackPlayer:
             os.makedirs("logs", exist_ok=True)
             debug_path = os.path.join("logs", "debug_troop_bar.png")
             bar_screenshot.save(debug_path)
-            print(f"   Debug: troop bar screenshot saved to {debug_path}")
+            self._log(f"   Debug: troop bar screenshot saved to {debug_path}")
         except Exception as e:
-            print(f"⚠️ Could not capture troop bar for slot mapping: {e}")
+            self._log(f"⚠️ Could not capture troop bar for slot mapping: {e}", "warning")
             return {}
 
         mapping: Dict[int, int] = {}
@@ -295,20 +304,20 @@ class AttackPlayer:
                     if new_slot not in seen_slots:
                         mapping[original_slot] = new_slot
                         seen_slots.add(new_slot)
-                        print(f"🔄 Troop slot remapped: recorded slot {original_slot} → current slot {new_slot} (confidence {max_val:.2f})")
+                        self._log(f"🔄 Troop slot remapped: recorded slot {original_slot} → current slot {new_slot} (confidence {max_val:.2f})")
                     else:
-                        print(f"⚠️ Slot {new_slot} already claimed; keeping slot {original_slot} as-is")
+                        self._log(f"⚠️ Slot {new_slot} already claimed; keeping slot {original_slot} as-is", "warning")
             except Exception as e:
-                print(f"⚠️ Template matching failed for slot {original_slot}: {e}")
+                self._log(f"⚠️ Template matching failed for slot {original_slot}: {e}", "warning")
 
         if not mapping:
-            print("⚠️ No troop slot remapping could be built!")
-            print("   Possible causes:")
-            print("   - Troop bar config doesn't match your screen (run 'Calibrate Troop Bar')")
-            print("   - Troop icons from recording don't match current troops")
-            print("   - opencv-python not installed")
+            self._log("⚠️ No troop slot remapping could be built!", "warning")
+            self._log("   Possible causes:", "warning")
+            self._log("   - Troop bar config doesn't match your screen (run 'Calibrate Troop Bar')", "warning")
+            self._log("   - Troop icons from recording don't match current troops", "warning")
+            self._log("   - opencv-python not installed", "warning")
         else:
-            print(f"✅ Built {len(mapping)} slot remapping(s)")
+            self._log(f"✅ Built {len(mapping)} slot remapping(s)")
 
         return mapping
 
@@ -322,18 +331,18 @@ class AttackPlayer:
         if action_type in ('click', 'move', 'drag', 'troop_select'):
             screen_width, screen_height = pyautogui.size()
             if x < 0 or y < 0 or x >= screen_width or y >= screen_height:
-                print(f" ⚠️ Skipping {action_type} at ({x}, {y}) — out of screen bounds")
+                self._log(f" ⚠️ Skipping {action_type} at ({x}, {y}) — out of screen bounds", "warning")
                 return
 
         try:
             if action_type == 'click':
                 # Validate deployment clicks against the configured deployment zone
                 if self._deployment_zone and not self._is_in_deployment_zone(x, y):
-                    print(f" - ⚠️ Skipping click at ({x}, {y}): outside deployment zone")
+                    self._log(f" - ⚠️ Skipping click at ({x}, {y}): outside deployment zone", "warning")
                     return
                 hx, hy = humanize_click(x, y)
                 pyautogui.click(hx, hy)
-                print(f" - Click at ({hx}, {hy})")
+                self._log(f" - Click at ({hx}, {hy})")
 
             elif action_type == 'troop_select':
                 original_slot = action.get('slot_index', 0)
@@ -344,21 +353,21 @@ class AttackPlayer:
                     new_y = y
                     hx, hy = humanize_click(new_x, new_y)
                     pyautogui.click(hx, hy)
-                    print(f" - Troop select: slot {original_slot} → slot {new_slot} at ({hx}, {hy})")
+                    self._log(f" - Troop select: slot {original_slot} → slot {new_slot} at ({hx}, {hy})")
                 else:
                     hx, hy = humanize_click(x, y)
                     pyautogui.click(hx, hy)
-                    print(f" - Troop select: slot {original_slot} at ({hx}, {hy}) (no remap)")
+                    self._log(f" - Troop select: slot {original_slot} at ({hx}, {hy}) (no remap)")
             
             elif action_type == 'move':
                 hx, hy = humanize_click(x, y)
                 pyautogui.moveTo(hx, hy)
-                print(f" - Move to ({hx}, {hy})")
+                self._log(f" - Move to ({hx}, {hy})")
             
             elif action_type == 'delay':
                 duration = action.get('duration', 1.0) / self.playback_speed
                 time.sleep(humanize_delay(duration))
-                print(f" - Delay {duration:.1f}s")
+                self._log(f" - Delay {duration:.1f}s")
             
             elif action_type == 'drag':
                 start_x = action.get('start_x', x)
@@ -366,13 +375,13 @@ class AttackPlayer:
                 hx, hy = humanize_click(x, y)
                 hsx, hsy = humanize_click(start_x, start_y)
                 pyautogui.drag(hx - hsx, hy - hsy, duration=0.5)
-                print(f" - Drag from ({hsx}, {hsy}) to ({hx}, {hy})")
+                self._log(f" - Drag from ({hsx}, {hsy}) to ({hx}, {hy})")
             
             else:
-                print(f" - Unknown action: {action_type}")
+                self._log(f" - Unknown action: {action_type}")
         
         except Exception as e:
-            print(f" - Error executing action {action_type}: {e}")
+            self._log(f" - Error executing action {action_type}: {e}", "error")
 
     def _is_in_deployment_zone(self, x: int, y: int) -> bool:
         """Return True if the coordinate is within the configured deployment zone."""
@@ -418,14 +427,14 @@ class AttackPlayer:
         """Show a preview of the recording actions"""
         recording = self.attack_recorder.load_recording(session_name)
         if not recording:
-            print(f"Recording not found: {session_name}")
+            self._log(f"Recording not found: {session_name}", "error")
             return
         
         actions = recording.get('actions', [])
         
-        print(f"\n=== RECORDING PREVIEW: {session_name} ===")
-        print(f"Duration: {recording.get('duration', 0):.1f} seconds")
-        print(f"Total actions: {len(actions)}")
+        self._log(f"\n=== RECORDING PREVIEW: {session_name} ===")
+        self._log(f"Duration: {recording.get('duration', 0):.1f} seconds")
+        self._log(f"Total actions: {len(actions)}")
         
         # Show action summary
         action_counts = {}
@@ -433,26 +442,26 @@ class AttackPlayer:
             action_type = action.get('type', 'unknown')
             action_counts[action_type] = action_counts.get(action_type, 0) + 1
         
-        print("\nAction breakdown:")
+        self._log("\nAction breakdown:")
         for action_type, count in action_counts.items():
-            print(f"  {action_type}: {count}")
+            self._log(f"  {action_type}: {count}")
         
         # Show first few actions
-        print(f"\nFirst 10 actions:")
+        self._log(f"\nFirst 10 actions:")
         for i, action in enumerate(actions[:10]):
             timestamp = action.get('timestamp', 0)
             action_type = action.get('type', 'unknown')
             x, y = action.get('x', 0), action.get('y', 0)
-            print(f"  {i+1:2d}. {timestamp:6.1f}s - {action_type} at ({x}, {y})")
+            self._log(f"  {i+1:2d}. {timestamp:6.1f}s - {action_type} at ({x}, {y})")
         
         if len(actions) > 10:
-            print(f"  ... and {len(actions) - 10} more actions")
+            self._log(f"  ... and {len(actions) - 10} more actions")
     
     def set_playback_speed(self, speed: float) -> None:
         """Set the playback speed multiplier"""
         if speed <= 0:
-            print("Speed must be positive")
+            self._log("Speed must be positive", "warning")
             return
         
         self.playback_speed = speed
-        print(f"Playback speed set to {speed}x") 
+        self._log(f"Playback speed set to {speed}x") 

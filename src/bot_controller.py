@@ -2,6 +2,7 @@
 Bot Controller - Main logic controller for COC Attack Bot
 """
 
+import threading
 from typing import Dict, List, Optional, Tuple
 from .core.screen_capture import ScreenCapture
 from .core.coordinate_mapper import CoordinateMapper
@@ -18,12 +19,14 @@ class BotController:
     def __init__(self, console_output: bool = True):
         self.logger = Logger(console_output=console_output)
         self.config = Config()
-        self.screen_capture = ScreenCapture()
-        self.coordinate_mapper = CoordinateMapper()
+        self.screen_capture = ScreenCapture(logger=self.logger)
+        self.coordinate_mapper = CoordinateMapper(logger=self.logger)
         troop_bar_cfg = self.config.get('auto_attacker.troop_bar', {})
-        self.attack_recorder = AttackRecorder(troop_bar_config=troop_bar_cfg)
+        self.attack_recorder = AttackRecorder(troop_bar_config=troop_bar_cfg,
+                                              logger=self.logger)
         self.attack_player = AttackPlayer(attack_recorder=self.attack_recorder,
-                                          troop_bar_config=troop_bar_cfg)
+                                          troop_bar_config=troop_bar_cfg,
+                                          logger=self.logger)
         self.ai_analyzer = AIAnalyzer(
             api_key=self.config.get("ai_analyzer.google_gemini_api_key", ""),
             logger=self.logger,
@@ -38,6 +41,7 @@ class BotController:
             config=self.config  # Pass the single config instance
         )
         
+        self._state_lock = threading.Lock()
         self.is_recording = False
         self.is_playing = False
         
@@ -57,36 +61,40 @@ class BotController:
     
     def start_attack_recording(self, session_name: str) -> None:
         """Start recording an attack session"""
-        if self.is_recording:
-            self.logger.warning("Already recording a session")
-            return
+        with self._state_lock:
+            if self.is_recording:
+                self.logger.warning("Already recording a session")
+                return
+            self.is_recording = True
             
         self.logger.info(f"Starting attack recording: {session_name}")
-        self.is_recording = True
         self.attack_recorder.start_recording(session_name)
     
     def stop_attack_recording(self) -> None:
         """Stop recording the current attack session"""
-        if not self.is_recording:
-            self.logger.warning("No recording session active")
-            return
+        with self._state_lock:
+            if not self.is_recording:
+                self.logger.warning("No recording session active")
+                return
+            self.is_recording = False
             
         self.logger.info("Stopping attack recording")
-        self.is_recording = False
         self.attack_recorder.stop_recording()
     
     def play_attack(self, session_name: str) -> None:
         """Play back a recorded attack session"""
-        if self.is_playing:
-            self.logger.warning("Already playing an attack")
-            return
+        with self._state_lock:
+            if self.is_playing:
+                self.logger.warning("Already playing an attack")
+                return
+            self.is_playing = True
             
         self.logger.info(f"Playing attack session: {session_name}")
-        self.is_playing = True
         try:
             self.attack_player.play_attack(session_name)
         finally:
-            self.is_playing = False
+            with self._state_lock:
+                self.is_playing = False
     
     def start_auto_attack(self, attack_sessions: List[str], min_gold: int = 100000, min_elixir: int = 100000, 
                           min_dark_elixir: int = 1000) -> None:

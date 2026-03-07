@@ -85,8 +85,8 @@ class AutoAttacker:
         # Last AI analysis result — updated by _check_loot_with_ai when attack is recommended
         self._last_ai_analysis: Optional[Dict] = None
         
-        print("Auto Attacker initialized")
-        print("Emergency stop: Ctrl+Alt+S")
+        self.logger.info("Auto Attacker initialized")
+        self.logger.info("Emergency stop: Ctrl+Alt+S")
     
     def add_attack_session(self, session_name: str) -> bool:
         """Add an attack session to rotation"""
@@ -114,7 +114,7 @@ class AutoAttacker:
         """Start the automated attack system"""
         with self._start_lock:
             if self.is_running:
-                print("Auto attacker already running")
+                self.logger.warning("Auto attacker already running")
                 return
 
             if not self.attack_sessions:
@@ -937,7 +937,7 @@ class AutoAttacker:
             row(f"Last Atk: {last_atk:<12} │ Session: {session_name}"),
             bottom,
         ]
-        print("\n".join(lines))
+        self.logger.info("\n".join(lines))
 
     def _print_session_summary(self) -> None:
         """Print a final summary when the session ends."""
@@ -974,23 +974,26 @@ class AutoAttacker:
         avg_dark = total_dark // max(success, 1)
 
         sep = "═" * 43
-        print(f"\n{sep}")
-        print("       SESSION COMPLETE SUMMARY")
-        print(sep)
-        print(f"Runtime:           {runtime_str}")
-        print(f"Total Attacks:     {total}")
-        print(f"Successful:        {success} ({success_pct:.0f}%)")
-        print(f"Failed:            {failed}")
-        print()
-        print("TOTAL LOOT FARMED:")
-        print(f"  Gold:            {total_gold:,}")
-        print(f"  Elixir:          {total_elixir:,}")
-        print(f"  Dark Elixir:     {total_dark:,}")
-        print()
-        print(f"Best Attack:       {best_loot:,} gold+elixir (Attack #{best_num})")
-        print(f"Average Loot/atk:  {avg_gold:,} gold  /  {avg_elixir:,} elixir  /  {avg_dark:,} dark")
-        print(f"Attacks/hour:      {atk_per_hr:.1f}")
-        print(sep)
+        summary_lines = [
+            f"\n{sep}",
+            "       SESSION COMPLETE SUMMARY",
+            sep,
+            f"Runtime:           {runtime_str}",
+            f"Total Attacks:     {total}",
+            f"Successful:        {success} ({success_pct:.0f}%)",
+            f"Failed:            {failed}",
+            "",
+            "TOTAL LOOT FARMED:",
+            f"  Gold:            {total_gold:,}",
+            f"  Elixir:          {total_elixir:,}",
+            f"  Dark Elixir:     {total_dark:,}",
+            "",
+            f"Best Attack:       {best_loot:,} gold+elixir (Attack #{best_num})",
+            f"Average Loot/atk:  {avg_gold:,} gold  /  {avg_elixir:,} elixir  /  {avg_dark:,} dark",
+            f"Attacks/hour:      {atk_per_hr:.1f}",
+            sep,
+        ]
+        self.logger.info("\n".join(summary_lines))
 
     def _save_session_stats(self) -> None:
         """Save session statistics to a daily JSON log file."""

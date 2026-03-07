@@ -38,6 +38,9 @@ BTN_SECONDARY   = "#2a3f6f"   # secondary/utility button colour
 BTN_SECONDARY_H = "#3a5080"   # secondary button hover
 BTN_DANGER      = "#dc3545"   # danger / stop button colour
 BTN_DANGER_H    = "#c82333"   # danger button hover
+COLOR_GOLD      = "#FFD700"   # loot: gold
+COLOR_ELIXIR    = "#DE3AFF"   # loot: elixir (purple)
+COLOR_DARK      = "#9090c8"   # loot: dark elixir
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +82,6 @@ class ToolTip:
         widget.bind("<Leave>", self.hide)
 
     def show(self, event=None):
-        bbox = self.widget.bbox("insert") if hasattr(self.widget, "bbox") and self.widget.bbox("insert") else None
         x = self.widget.winfo_rootx() + 60
         y = self.widget.winfo_rooty() + 10
         self.tooltip_window = tw = tk.Toplevel(self.widget)
@@ -174,13 +176,13 @@ class DashboardPage(ctk.CTkFrame):
         loot_sec.grid(row=1, column=0, padx=16, pady=6, sticky="ew")
         loot_sec.columnconfigure((0, 1, 2), weight=1)
 
-        self.gold_label = ctk.CTkLabel(loot_sec, text="💰 Gold\n—", font=("Segoe UI", 14, "bold"), text_color="#FFD700")
+        self.gold_label = ctk.CTkLabel(loot_sec, text="💰 Gold\n—", font=("Segoe UI", 14, "bold"), text_color=COLOR_GOLD)
         self.gold_label.grid(row=1, column=0, padx=12, pady=(4, 12))
 
-        self.elixir_label = ctk.CTkLabel(loot_sec, text="💧 Elixir\n—", font=("Segoe UI", 14, "bold"), text_color="#DE3AFF")
+        self.elixir_label = ctk.CTkLabel(loot_sec, text="💧 Elixir\n—", font=("Segoe UI", 14, "bold"), text_color=COLOR_ELIXIR)
         self.elixir_label.grid(row=1, column=1, padx=12, pady=(4, 12))
 
-        self.dark_label = ctk.CTkLabel(loot_sec, text="⚫ Dark\n—", font=("Segoe UI", 14, "bold"), text_color="#9090c8")
+        self.dark_label = ctk.CTkLabel(loot_sec, text="⚫ Dark\n—", font=("Segoe UI", 14, "bold"), text_color=COLOR_DARK)
         self.dark_label.grid(row=1, column=2, padx=12, pady=(4, 12))
 
         # Stats section

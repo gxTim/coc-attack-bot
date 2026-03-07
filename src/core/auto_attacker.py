@@ -342,15 +342,6 @@ class AutoAttacker:
             session_name = self._select_best_strategy(screenshot_path)
             self.logger.info(f"🎯 Starting attack with session: {session_name}")
 
-            # Capture pixel at return_home BEFORE playback starts so that
-            # battle-end detection can compare against the pre-battle state.
-            initial_battle_pixel = None
-            if 'return_home' in coords:
-                home_coord = coords['return_home']
-                initial_battle_pixel = self.screen_capture.get_pixel_color(
-                    home_coord['x'], home_coord['y']
-                )
-
             if not self.attack_player.play_attack(session_name, speed=1.0, auto_mode=True):
                 self.logger.error("Failed to start attack recording")
                 return False
@@ -358,10 +349,17 @@ class AutoAttacker:
             self.logger.info("✅ Attack recording started - troops deploying...")
 
             # Step 8: Wait for battle completion (detect end instead of fixed 3 min)
-            self._wait_for_battle_end(initial_battle_pixel=initial_battle_pixel)
+            battle_end_reason = self._wait_for_battle_end()
 
-            # Step 9: Return home
-            self._return_home()
+            # Step 9: Return home.
+            # Template detection confirms the Return Home button is visible →
+            # click it normally (up to 3 attempts).  Pixel heuristic and timeout
+            # are ambiguous about whether we are already home, so only try once
+            # to avoid wasting time clicking an empty area.
+            if battle_end_reason == "template":
+                self._return_home()
+            else:
+                self._return_home(max_attempts=1)
 
             return True
 
@@ -369,7 +367,7 @@ class AutoAttacker:
             self.logger.error(f"Attack sequence failed: {e}")
             return False
     
-    def _wait_for_battle_end(self, initial_battle_pixel=None) -> None:
+    def _wait_for_battle_end(self) -> str:
         """Wait for battle to end by checking for battle-end indicators.
 
         Detection priority:
@@ -382,12 +380,14 @@ class AutoAttacker:
         troop deployment is complete before we start polling (fixes race
         condition between playback and battle-end detection).
 
-        Args:
-            initial_battle_pixel: RGB tuple captured at the ``return_home``
-                coordinate BEFORE playback started.  When provided, this gives a
-                reliable pre-battle baseline so a colour change can be detected
-                immediately after playback finishes (handles the case where CoC
-                auto-returns the player to the home base during troop deployment).
+        Returns:
+            A string describing how battle-end was detected:
+            * ``"template"``    – a battle-end or return-home template matched.
+            * ``"pixel_change"``– the pixel-colour heuristic fired after the
+              minimum elapsed time requirement was satisfied.
+            * ``"timeout"``     – the battle timeout was reached without a
+              positive detection, or no detection method was available
+              (absolute fallback).
         """
         battle_timeout = self.config.get('auto_attacker.battle_timeout', 180)
         poll_interval = 3  # seconds between screen checks
@@ -421,7 +421,7 @@ class AutoAttacker:
                     self.logger.info(
                         f"🏁 Battle already ended during deployment ({name} detected)"
                     )
-                    return
+                    return "template"
             elapsed = 0
             while elapsed < battle_timeout and self.is_running:
                 for path, name in templates:
@@ -432,7 +432,7 @@ class AutoAttacker:
                         self.logger.info(
                             f"🏁 Battle ended after ~{elapsed}s ({name} detected)"
                         )
-                        return
+                        return "template"
                 remaining = battle_timeout - elapsed
                 self.logger.info(
                     f"⏳ Battle in progress... ~{remaining // 60}m {remaining % 60}s remaining"
@@ -440,7 +440,7 @@ class AutoAttacker:
                 time.sleep(poll_interval)
                 elapsed += poll_interval
             self.logger.info(f"⏳ Battle timeout reached ({battle_timeout}s)")
-            return
+            return "timeout"
 
         # Step 3: No templates – try pixel-colour check at the return_home button.
         coords = self._get_coords()
@@ -452,37 +452,14 @@ class AutoAttacker:
                 f"for better detection place a template at "
                 f"'{_RETURN_HOME_TEMPLATE}' or '{_BATTLE_END_TEMPLATE}'..."
             )
-            # Use the pre-battle pixel captured before playback when available so
-            # that a colour change is detectable even if the battle ended while
-            # troops were still being deployed.
-            if initial_battle_pixel is not None:
-                initial_color = initial_battle_pixel
-            else:
-                initial_color = self.screen_capture.get_pixel_color(
-                    home_coord['x'], home_coord['y']
-                )
-            # Immediate post-playback check (only meaningful with pre-captured pixel).
-            if initial_battle_pixel is not None:
-                # Require _PIXEL_CONFIRM_REQUIRED consecutive reads above the
-                # threshold to avoid false positives from single-frame glitches.
-                immediate_confirm = 0
-                for _chk in range(_PIXEL_CONFIRM_REQUIRED):
-                    current_color = self.screen_capture.get_pixel_color(
-                        home_coord['x'], home_coord['y']
-                    )
-                    color_diff = sum(
-                        abs(current_color[i] - initial_color[i]) for i in range(3)
-                    )
-                    if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD:
-                        immediate_confirm += 1
-                    else:
-                        break
-                    time.sleep(0.5)
-                if immediate_confirm >= _PIXEL_CONFIRM_REQUIRED:
-                    self.logger.info(
-                        "🏁 Battle already ended during troop deployment!"
-                    )
-                    return
+            # Always capture a fresh baseline after playback finishes so that
+            # the reference pixel is from the in-battle screen rather than the
+            # pre-battle home screen.  Using the home-screen pixel as a baseline
+            # causes an immediate false positive because the battle screen always
+            # differs from the home screen.
+            initial_color = self.screen_capture.get_pixel_color(
+                home_coord['x'], home_coord['y']
+            )
             pixel_confirm_count = 0
             elapsed = 0
             while elapsed < battle_timeout and self.is_running:
@@ -492,33 +469,19 @@ class AutoAttacker:
                 color_diff = sum(
                     abs(current_color[i] - initial_color[i]) for i in range(3)
                 )
-                if initial_battle_pixel is not None:
-                    # Pre-captured pixel — colour change alone is sufficient; no
-                    # minimum elapsed time needed because the baseline was taken
-                    # before the battle started.
-                    if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD:
-                        pixel_confirm_count += 1
-                        if pixel_confirm_count >= _PIXEL_CONFIRM_REQUIRED:
-                            self.logger.info(
-                                f"🏁 Battle ended after ~{elapsed}s "
-                                f"(pixel colour change at return_home confirmed)"
-                            )
-                            return
-                    else:
-                        pixel_confirm_count = 0
+                # Always enforce the minimum elapsed time before declaring
+                # battle end to prevent false positives from brief colour
+                # changes (animations, effects) early in the battle.
+                if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD and elapsed >= _MIN_BATTLE_ELAPSED_SECS:
+                    pixel_confirm_count += 1
+                    if pixel_confirm_count >= _PIXEL_CONFIRM_REQUIRED:
+                        self.logger.info(
+                            f"🏁 Battle ended after ~{elapsed}s "
+                            f"(pixel colour change at return_home confirmed)"
+                        )
+                        return "pixel_change"
                 else:
-                    # Pixel captured after playback — require minimum elapsed time
-                    # to avoid false positives from brief colour changes at battle start.
-                    if color_diff > _PIXEL_COLOR_DIFF_THRESHOLD and elapsed >= _MIN_BATTLE_ELAPSED_SECS:
-                        pixel_confirm_count += 1
-                        if pixel_confirm_count >= _PIXEL_CONFIRM_REQUIRED:
-                            self.logger.info(
-                                f"🏁 Battle ended after ~{elapsed}s "
-                                f"(pixel colour change at return_home confirmed)"
-                            )
-                            return
-                    else:
-                        pixel_confirm_count = 0
+                    pixel_confirm_count = 0
                 remaining = battle_timeout - elapsed
                 self.logger.info(
                     f"⏳ Battle in progress... {remaining // 60}m {remaining % 60}s remaining"
@@ -526,7 +489,7 @@ class AutoAttacker:
                 time.sleep(poll_interval)
                 elapsed += poll_interval
             self.logger.info(f"⏳ Battle timeout reached ({battle_timeout}s)")
-            return
+            return "timeout"
 
         # Step 4: Absolute fallback – no templates and no coordinate mapped.
         self.logger.warning(
@@ -543,6 +506,7 @@ class AutoAttacker:
             )
             time.sleep(poll_interval)
             elapsed += poll_interval
+        return "timeout"
 
     def _click_attack_confirm_button(self) -> bool:
         """Click the green attack confirm button that appears after find_a_match (new CoC update)"""
@@ -770,8 +734,14 @@ class AutoAttacker:
         )
         return match is None
 
-    def _return_home(self) -> None:
-        """Return to home base after battle, with up to 3 click attempts.
+    def _return_home(self, max_attempts: int = 3) -> None:
+        """Return to home base after battle.
+
+        Args:
+            max_attempts: Maximum number of click attempts on the return_home
+                coordinate.  Pass ``1`` when the battle-end detection method
+                was ambiguous (pixel heuristic or timeout) to avoid wasting
+                time clicking a position where no button may be present.
 
         Before clicking, the method checks whether the return_home template
         button is still visible on screen.  If it is not visible, the bot is
@@ -796,7 +766,6 @@ class AutoAttacker:
             return
 
         home_coord = coords['return_home']
-        max_attempts = 3
         for attempt in range(1, max_attempts + 1):
             # When template-based detection is unavailable, capture the pixel
             # colour before clicking so we can detect whether anything changed.

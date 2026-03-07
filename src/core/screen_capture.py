@@ -8,7 +8,7 @@ import numpy as np
 import time
 import os
 from typing import Optional, Tuple, Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 import win32gui
 
 class ScreenCapture:
@@ -18,6 +18,7 @@ class ScreenCapture:
         self.screenshot_dir = "screenshots"
         self.game_window_title = "Clash of Clans"
         self.game_window_bounds = None
+        self._cached_hwnd: Optional[int] = None
         self._template_cache: Dict[str, np.ndarray] = {}
         self._logger = logger
         
@@ -26,17 +27,40 @@ class ScreenCapture:
         
         # Configure pyautogui
         pyautogui.FAILSAFE = True
-        pyautogui.PAUSE = 0.1
+        pyautogui.PAUSE = 0.0
 
     def _log(self, msg: str, level: str = "info") -> None:
         """Log via Logger if available, otherwise print."""
         if self._logger:
-            getattr(self._logger, level)(msg)
+            getattr(self._logger, level, self._logger.info)(msg)
         else:
             print(msg)
     
+    def _validate_cached_window(self) -> bool:
+        """Return True if the cached window handle is still valid."""
+        if self._cached_hwnd is None:
+            return False
+        try:
+            return win32gui.IsWindow(self._cached_hwnd) and win32gui.IsWindowVisible(self._cached_hwnd)
+        except Exception:
+            return False
+
     def find_game_window(self) -> Optional[Tuple[int, int, int, int]]:
-        """Find the COC game window and return its bounds (x, y, width, height)"""
+        """Find the COC game window and return its bounds (x, y, width, height).
+
+        The result is cached; EnumWindows is only called again when the cached
+        handle is no longer valid (window closed or hidden).
+        """
+        if self._validate_cached_window():
+            try:
+                rect = win32gui.GetWindowRect(self._cached_hwnd)
+                x, y, right, bottom = rect
+                self.game_window_bounds = (x, y, right - x, bottom - y)
+                return self.game_window_bounds
+            except Exception as e:
+                self._log(f"Cached window handle became invalid: {e}", "warning")
+                self._cached_hwnd = None
+
         def enum_windows_callback(hwnd, windows):
             if win32gui.IsWindowVisible(hwnd):
                 window_title = win32gui.GetWindowText(hwnd)
@@ -53,6 +77,7 @@ class ScreenCapture:
             x, y, right, bottom = rect
             width = right - x
             height = bottom - y
+            self._cached_hwnd = hwnd
             self.game_window_bounds = (x, y, width, height)
             self._log(f"Found game window: {title} at ({x}, {y}, {width}, {height})")
             return self.game_window_bounds
@@ -176,4 +201,27 @@ class ScreenCapture:
         screenshot.save(filepath)
         
         self._log(f"Template saved: {filepath}")
-        return filepath 
+        return filepath
+
+    def cleanup_screenshots(self, max_age_hours: float = 24) -> None:
+        """Delete screenshot files older than *max_age_hours* from the screenshots directory."""
+        if not os.path.isdir(self.screenshot_dir):
+            return
+        cutoff = datetime.now() - timedelta(hours=max_age_hours)
+        deleted = 0
+        try:
+            for filename in os.listdir(self.screenshot_dir):
+                if not filename.lower().endswith(".png"):
+                    continue
+                filepath = os.path.join(self.screenshot_dir, filename)
+                try:
+                    mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
+                    if mtime < cutoff:
+                        os.remove(filepath)
+                        deleted += 1
+                except OSError:
+                    pass
+        except OSError:
+            pass
+        if deleted:
+            self._log(f"Cleaned up {deleted} old screenshot(s) from {self.screenshot_dir}") 

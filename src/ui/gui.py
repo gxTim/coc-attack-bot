@@ -82,6 +82,7 @@ class ToolTip:
         self.tooltip_window = None
         widget.bind("<Enter>", self.show)
         widget.bind("<Leave>", self.hide)
+        widget.bind("<Destroy>", self.hide)
 
     def show(self, event=None):
         x = self.widget.winfo_rootx() + 60
@@ -320,6 +321,10 @@ class DashboardPage(ctk.CTkFrame):
             self._polling = True
             self.update_stats()
 
+    def on_hide(self):
+        """Called when this page is hidden; stops the polling loop."""
+        self._polling = False
+
     def update_stats(self):
         """Periodically refresh dashboard statistics."""
         try:
@@ -355,7 +360,8 @@ class DashboardPage(ctk.CTkFrame):
         except Exception:
             pass
 
-        self.after(2000, self.update_stats)
+        if self._polling:
+            self.after(2000, self.update_stats)
 
 
 # ---------------------------------------------------------------------------
@@ -1229,9 +1235,11 @@ class SettingsPage(ctk.CTkFrame):
         api = self.settings_api_key_entry.get().strip()
         if api:
             cfg.set("ai_analyzer.google_gemini_api_key", api)
+            self.bot.ai_analyzer.api_key = api
         model = self.model_entry.get().strip()
         if model:
             cfg.set("ai_analyzer.model", model)
+            self.bot.ai_analyzer.update_model(model)
         cfg.set("dashboard.show_after_each_attack", bool(self.show_dash_switch.get()))
         cfg.set("dashboard.save_session_stats", bool(self.save_stats_switch.get()))
         cfg.save_config()
@@ -1467,7 +1475,7 @@ class BotGUI:
         self.log_textbox.configure(state="disabled")
 
     def _open_debug_console(self):
-        """Open a separate window showing the raw log file."""
+        """Open a separate window showing the current session's raw log file."""
         log_path = self.bot.logger.get_log_file_path()
         win = ctk.CTkToplevel(self.root)
         win.title("Debug Console")
@@ -1478,6 +1486,8 @@ class BotGUI:
             fg_color=BG_SECT, text_color=TEXT,
         )
         tb.pack(fill="both", expand=True, padx=8, pady=8)
+
+        _keep_refreshing = True
 
         def _load():
             try:
@@ -1493,6 +1503,19 @@ class BotGUI:
                 tb.insert("end", f"Could not read log file: {log_path}")
                 tb.configure(state="disabled")
 
+        def _schedule_refresh():
+            nonlocal _keep_refreshing
+            if _keep_refreshing and win.winfo_exists():
+                _load()
+                win.after(3000, _schedule_refresh)
+
+        def _on_close():
+            nonlocal _keep_refreshing
+            _keep_refreshing = False
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", _on_close)
+
         _load()
         ctk.CTkButton(
             win, text="↺ Refresh", command=_load,
@@ -1500,12 +1523,19 @@ class BotGUI:
             height=32, corner_radius=8,
         ).pack(pady=4)
 
+        # Start auto-refresh loop
+        win.after(3000, _schedule_refresh)
+
     # ------------------------------------------------------------------
     # Page switching
     # ------------------------------------------------------------------
 
     def show_page(self, page_name: str) -> None:
         """Raise the selected page and update sidebar button states."""
+        # Notify pages being hidden
+        for key, page in self.pages.items():
+            if key != page_name and hasattr(page, "on_hide"):
+                page.on_hide()
         # Stop animation on all pages; start only the visible one
         for key, page in self.pages.items():
             canvas = getattr(page, '_star_canvas', None)

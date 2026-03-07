@@ -116,22 +116,24 @@ class StarCanvas(tk.Canvas):
     def __init__(self, parent, **kwargs):
         super().__init__(parent, bg=BG_MAIN, highlightthickness=0, **kwargs)
         self.stars: list = []
+        self._glow_ids: list = []
         self._create_stars(60)
-        self._add_glow()
+        self.bind("<Configure>", self._on_resize)
         self._animate()
 
     def _create_stars(self, count: int) -> None:
         for _ in range(count):
-            x = random.randint(0, 2000)
-            y = random.randint(0, 1000)
+            # Store relative positions (0.0–1.0) so stars reposition on resize
+            rx = random.random()
+            ry = random.random()
             size = random.choice([1, 1, 1, 2, 2, 3])
             base_brightness = random.randint(40, 180)
             color_type = random.choice(["white", "blue", "purple"])
-            star_id = self.create_oval(
-                x, y, x + size, y + size, fill="#333333", outline=""
-            )
+            star_id = self.create_oval(0, 0, size, size, fill="#333333", outline="")
             self.stars.append({
                 "id": star_id,
+                "rx": rx, "ry": ry,
+                "size": size,
                 "brightness": base_brightness,
                 "base": base_brightness,
                 "phase": random.uniform(0, 6.28),
@@ -139,13 +141,44 @@ class StarCanvas(tk.Canvas):
                 "color_type": color_type,
             })
 
-    def _add_glow(self) -> None:
-        """Draw a faint purple/blue radial glow in the top-right corner."""
-        self.create_oval(1400, -100, 2100, 550, fill="#0d0520", outline="")
-        self.create_oval(1550, -50,  1980, 400, fill="#100628", outline="")
-        self.create_oval(1650,   0,  1920, 300, fill="#13072e", outline="")
+    def _add_glow(self, w: int, h: int) -> None:
+        """Draw a faint purple/blue radial glow in the top-right corner, scaled to canvas size."""
+        for gid in self._glow_ids:
+            self.delete(gid)
+        self._glow_ids.clear()
+        r = min(w, h) * 0.55
+        cx, cy = w, 0
+        self._glow_ids.append(
+            self.create_oval(cx - r * 1.5, cy - r * 0.5, cx + r * 0.5, cy + r * 1.2,
+                             fill="#0d0520", outline="")
+        )
+        self._glow_ids.append(
+            self.create_oval(cx - r * 1.2, cy - r * 0.3, cx + r * 0.3, cy + r,
+                             fill="#100628", outline="")
+        )
+        self._glow_ids.append(
+            self.create_oval(cx - r * 0.9, cy - r * 0.1, cx + r * 0.2, cy + r * 0.8,
+                             fill="#13072e", outline="")
+        )
+
+    def _on_resize(self, event) -> None:
+        """Reposition stars and recreate the glow whenever the canvas is resized."""
+        w, h = event.width, event.height
+        if w < 2 or h < 2:
+            return
+        for star in self.stars:
+            x = int(star["rx"] * w)
+            y = int(star["ry"] * h)
+            s = star["size"]
+            self.coords(star["id"], x, y, x + s, y + s)
+        self._add_glow(w, h)
 
     def _animate(self) -> None:
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
         for star in self.stars:
             star["phase"] += star["speed"]
             brightness = int(star["base"] + 60 * math.sin(star["phase"]))

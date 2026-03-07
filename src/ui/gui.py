@@ -2,7 +2,9 @@
 GUI - CustomTkinter-based graphical user interface for the COC Attack Bot
 """
 
+import math
 import queue
+import random
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import threading
@@ -22,20 +24,20 @@ ctk.set_default_color_theme("blue")
 # Dark theme color palette
 # ---------------------------------------------------------------------------
 
-BG_MAIN      = "#1a1a2e"   # root / content background
-BG_SIDEBAR   = "#0d1117"   # sidebar - distinctly darker
-BG_SECT      = "#1e2a4a"   # section card frames - stands out from BG_MAIN
-BG_CARD      = "#1e2a4a"   # alias for section cards
-BG_INPUT     = "#0d1525"   # input field backgrounds - dark but distinct
-BG_HOVER     = "#2a3f6f"   # hover / active state
-ACCENT       = "#00b894"   # green accent (active / on states)
-ACCENT_H     = "#007a61"   # darker green for pressed/hover
-BORDER       = "#2a3f6f"   # section frame border colour - clearly visible
-TEXT         = "#e0e0e0"   # primary text
-TEXT_DIM     = "#a0b0c8"   # secondary / label text - slightly brighter
-BTN_FG       = "#1e2a4a"   # default button face colour (legacy alias)
-BTN_SECONDARY   = "#2a3f6f"   # secondary/utility button colour
-BTN_SECONDARY_H = "#3a5080"   # secondary button hover
+BG_MAIN      = "#0d1117"   # root / content background – near-pure black
+BG_SIDEBAR   = "#0d1117"   # sidebar – same dark black, blends seamlessly
+BG_SECT      = "#161b22"   # section card frames – subtle lift from black
+BG_CARD      = "#161b22"   # alias for section cards
+BG_INPUT     = "#0d1117"   # input field backgrounds
+BG_HOVER     = "#30363d"   # hover / active state
+ACCENT       = "#3b82f6"   # blue accent (primary actions / active state)
+ACCENT_H     = "#2563eb"   # darker blue for pressed / hover
+BORDER       = "#21262d"   # subtle dark border
+TEXT         = "#ffffff"   # primary text – pure white
+TEXT_DIM     = "#8b949e"   # secondary / label text
+BTN_FG       = "#161b22"   # default button face colour (legacy alias)
+BTN_SECONDARY   = "#21262d"   # secondary/utility button colour
+BTN_SECONDARY_H = "#30363d"   # secondary button hover
 BTN_DANGER      = "#dc3545"   # danger / stop button colour
 BTN_DANGER_H    = "#c82333"   # danger button hover
 COLOR_GOLD      = "#FFD700"   # loot: gold
@@ -52,18 +54,18 @@ def _make_section(parent: ctk.CTkFrame, title: str, **kw) -> ctk.CTkFrame:
     frame = ctk.CTkFrame(
         parent,
         fg_color=BG_SECT,
-        border_width=2,
+        border_width=1,
         border_color=BORDER,
-        corner_radius=10,
+        corner_radius=14,
         **kw,
     )
     ctk.CTkLabel(
         frame,
         text=title.upper(),
         text_color=TEXT_DIM,
-        font=("Segoe UI", 12, "bold"),
+        font=("Segoe UI", 11, "bold"),
         anchor="w",
-    ).grid(row=0, column=0, columnspan=10, padx=12, pady=(8, 0), sticky="w")
+    ).grid(row=0, column=0, columnspan=10, padx=14, pady=(10, 0), sticky="w")
     return frame
 
 
@@ -97,6 +99,99 @@ class ToolTip:
         if self.tooltip_window:
             self.tooltip_window.destroy()
             self.tooltip_window = None
+
+
+# ---------------------------------------------------------------------------
+# Animated star background
+# ---------------------------------------------------------------------------
+
+class StarCanvas(tk.Canvas):
+    """Animated star background with twinkling effect.
+
+    Place this as the first child of a page frame (lowest z-order) so that
+    all subsequently created widgets sit on top of it.  Stars are visible in
+    the padding / gap areas between section cards.
+    """
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, bg=BG_MAIN, highlightthickness=0, **kwargs)
+        self.stars: list = []
+        self._glow_ids: list = []
+        self._create_stars(60)
+        self.bind("<Configure>", self._on_resize)
+        self._animate()
+
+    def _create_stars(self, count: int) -> None:
+        for _ in range(count):
+            # Store relative positions (0.0–1.0) so stars reposition on resize
+            rx = random.random()
+            ry = random.random()
+            size = random.choice([1, 1, 1, 2, 2, 3])
+            base_brightness = random.randint(40, 180)
+            color_type = random.choice(["white", "blue", "purple"])
+            star_id = self.create_oval(0, 0, size, size, fill="#333333", outline="")
+            self.stars.append({
+                "id": star_id,
+                "rx": rx, "ry": ry,
+                "size": size,
+                "brightness": base_brightness,
+                "base": base_brightness,
+                "phase": random.uniform(0, 6.28),
+                "speed": random.uniform(0.02, 0.08),
+                "color_type": color_type,
+            })
+
+    def _add_glow(self, w: int, h: int) -> None:
+        """Draw a faint purple/blue radial glow in the top-right corner, scaled to canvas size."""
+        for gid in self._glow_ids:
+            self.delete(gid)
+        self._glow_ids.clear()
+        r = min(w, h) * 0.55
+        cx, cy = w, 0
+        self._glow_ids.append(
+            self.create_oval(cx - r * 1.5, cy - r * 0.5, cx + r * 0.5, cy + r * 1.2,
+                             fill="#0d0520", outline="")
+        )
+        self._glow_ids.append(
+            self.create_oval(cx - r * 1.2, cy - r * 0.3, cx + r * 0.3, cy + r,
+                             fill="#100628", outline="")
+        )
+        self._glow_ids.append(
+            self.create_oval(cx - r * 0.9, cy - r * 0.1, cx + r * 0.2, cy + r * 0.8,
+                             fill="#13072e", outline="")
+        )
+
+    def _on_resize(self, event) -> None:
+        """Reposition stars and recreate the glow whenever the canvas is resized."""
+        w, h = event.width, event.height
+        if w < 2 or h < 2:
+            return
+        for star in self.stars:
+            x = int(star["rx"] * w)
+            y = int(star["ry"] * h)
+            s = star["size"]
+            self.coords(star["id"], x, y, x + s, y + s)
+        self._add_glow(w, h)
+
+    def _animate(self) -> None:
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+        for star in self.stars:
+            star["phase"] += star["speed"]
+            brightness = int(star["base"] + 60 * math.sin(star["phase"]))
+            brightness = max(20, min(255, brightness))
+            ct = star["color_type"]
+            if ct == "white":
+                color = f"#{brightness:02x}{brightness:02x}{brightness:02x}"
+            elif ct == "blue":
+                color = f"#{brightness // 3:02x}{brightness // 2:02x}{brightness:02x}"
+            else:  # purple
+                color = f"#{brightness // 2:02x}{brightness // 4:02x}{brightness:02x}"
+            self.itemconfig(star["id"], fill=color)
+        self.after(150, self._animate)
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +251,9 @@ class DashboardPage(ctk.CTkFrame):
         self.bot = bot_controller
         self._polling = False
         self._ever_started = False
+        # Star background placed first so all UI widgets render on top of it
+        self._star_canvas = StarCanvas(self)
+        self._star_canvas.place(x=0, y=0, relwidth=1, relheight=1)
         self._build_ui()
 
     def _build_ui(self):
@@ -257,6 +355,9 @@ class AutoAttackPage(ctk.CTkFrame):
         super().__init__(parent, fg_color=BG_MAIN)
         self.bot = bot_controller
         self._session_vars: dict = {}
+        # Star background placed first so all UI widgets render on top of it
+        self._star_canvas = StarCanvas(self)
+        self._star_canvas.place(x=0, y=0, relwidth=1, relheight=1)
         self._build_ui()
         self._refresh_sessions()
 
@@ -347,7 +448,7 @@ class AutoAttackPage(ctk.CTkFrame):
 
         self.start_btn = ctk.CTkButton(
             btn_frame, text="▶ Start Auto Attack",
-            fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+            fg_color=ACCENT, hover_color=ACCENT_H, text_color="#ffffff",
             width=200, height=40, corner_radius=8, font=("Segoe UI", 13, "bold"),
             command=self._start_attack,
         )
@@ -390,7 +491,7 @@ class AutoAttackPage(ctk.CTkFrame):
             var = tk.BooleanVar(value=True)
             cb = ctk.CTkCheckBox(
                 self.sessions_frame, text=name, variable=var,
-                text_color=TEXT, checkmark_color="#000000",
+                text_color=TEXT, checkmark_color="#ffffff",
                 fg_color=ACCENT, hover_color=ACCENT_H,
             )
             cb.pack(anchor="w", padx=8, pady=2)
@@ -474,6 +575,9 @@ class RecordingPage(ctk.CTkFrame):
         super().__init__(parent, fg_color=BG_MAIN)
         self.bot = bot_controller
         self._recording_start: Optional[float] = None
+        # Star background placed first so all UI widgets render on top of it
+        self._star_canvas = StarCanvas(self)
+        self._star_canvas.place(x=0, y=0, relwidth=1, relheight=1)
         self._build_ui()
         self._refresh_recordings()
 
@@ -596,6 +700,9 @@ class PlaybackPage(ctk.CTkFrame):
         super().__init__(parent, fg_color=BG_MAIN)
         self.bot = bot_controller
         self._play_thread: Optional[threading.Thread] = None
+        # Star background placed first so all UI widgets render on top of it
+        self._star_canvas = StarCanvas(self)
+        self._star_canvas.place(x=0, y=0, relwidth=1, relheight=1)
         self._build_ui()
         self._refresh_sessions()
 
@@ -658,7 +765,7 @@ class PlaybackPage(ctk.CTkFrame):
 
         self.play_btn = ctk.CTkButton(
             btn_frame, text="▶ Play",
-            fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+            fg_color=ACCENT, hover_color=ACCENT_H, text_color="#ffffff",
             width=130, height=38, corner_radius=8, font=("Segoe UI", 12, "bold"),
             command=self._play,
         )
@@ -727,6 +834,9 @@ class CoordinatesPage(ctk.CTkFrame):
     def __init__(self, parent, bot_controller: BotController):
         super().__init__(parent, fg_color=BG_MAIN)
         self.bot = bot_controller
+        # Star background placed first so all UI widgets render on top of it
+        self._star_canvas = StarCanvas(self)
+        self._star_canvas.place(x=0, y=0, relwidth=1, relheight=1)
         self._build_ui()
         self._refresh_coords()
 
@@ -842,7 +952,7 @@ class CoordinatesPage(ctk.CTkFrame):
 
         ctk.CTkButton(
             win, text="Start", command=run,
-            fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+            fg_color=ACCENT, hover_color=ACCENT_H, text_color="#ffffff",
             corner_radius=8,
         ).pack(pady=8)
 
@@ -896,6 +1006,9 @@ class SettingsPage(ctk.CTkFrame):
     def __init__(self, parent, bot_controller: BotController):
         super().__init__(parent, fg_color=BG_MAIN)
         self.bot = bot_controller
+        # Star background placed first so all UI widgets render on top of it
+        self._star_canvas = StarCanvas(self)
+        self._star_canvas.place(x=0, y=0, relwidth=1, relheight=1)
         self._build_ui()
         self._load_settings()
 
@@ -1048,7 +1161,7 @@ class SettingsPage(ctk.CTkFrame):
         # --- Save button ---
         ctk.CTkButton(
             self, text="💾 Save Settings", command=self._save_settings,
-            fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+            fg_color=ACCENT, hover_color=ACCENT_H, text_color="#ffffff",
             height=36, corner_radius=8, font=("Segoe UI", 12, "bold"),
         ).grid(row=2, column=0, columnspan=2, pady=14)
 
@@ -1382,7 +1495,7 @@ class BotGUI:
         self.pages[page_name].tkraise()
         for key, btn in self._nav_buttons.items():
             if key == page_name:
-                btn.configure(fg_color=ACCENT, text_color="#000000", font=("Segoe UI", 20, "bold"))
+                btn.configure(fg_color=ACCENT, text_color="#ffffff", font=("Segoe UI", 20, "bold"))
             else:
                 btn.configure(fg_color="transparent", text_color=TEXT_DIM, font=("Segoe UI", 20))
         page = self.pages[page_name]

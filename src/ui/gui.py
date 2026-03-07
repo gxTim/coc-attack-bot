@@ -22,15 +22,22 @@ ctk.set_default_color_theme("blue")
 # Dark theme color palette
 # ---------------------------------------------------------------------------
 
-BG_MAIN  = "#1a1a2e"   # root / sidebar background
-BG_SECT  = "#16213e"   # section card frames
-BG_HOVER = "#0f3460"   # hover / active state
-ACCENT   = "#00b894"   # green accent (active / on states)
-ACCENT_H = "#007a61"   # darker green for pressed/hover
-BORDER   = "#0f3460"   # section frame border colour
-TEXT     = "#e0e0e0"   # primary text
-TEXT_DIM = "#888888"   # secondary / label text
-BTN_FG   = "#16213e"   # default button face colour
+BG_MAIN      = "#1a1a2e"   # root / content background
+BG_SIDEBAR   = "#0d1117"   # sidebar - distinctly darker
+BG_SECT      = "#1e2a4a"   # section card frames - stands out from BG_MAIN
+BG_CARD      = "#1e2a4a"   # alias for section cards
+BG_INPUT     = "#0d1525"   # input field backgrounds - dark but distinct
+BG_HOVER     = "#2a3f6f"   # hover / active state
+ACCENT       = "#00b894"   # green accent (active / on states)
+ACCENT_H     = "#007a61"   # darker green for pressed/hover
+BORDER       = "#2a3f6f"   # section frame border colour - clearly visible
+TEXT         = "#e0e0e0"   # primary text
+TEXT_DIM     = "#a0b0c8"   # secondary / label text - slightly brighter
+BTN_FG       = "#1e2a4a"   # default button face colour (legacy alias)
+BTN_SECONDARY   = "#2a3f6f"   # secondary/utility button colour
+BTN_SECONDARY_H = "#3a5080"   # secondary button hover
+BTN_DANGER      = "#dc3545"   # danger / stop button colour
+BTN_DANGER_H    = "#c82333"   # danger button hover
 
 
 # ---------------------------------------------------------------------------
@@ -38,23 +45,56 @@ BTN_FG   = "#16213e"   # default button face colour
 # ---------------------------------------------------------------------------
 
 def _make_section(parent: ctk.CTkFrame, title: str, **kw) -> ctk.CTkFrame:
-    """Return a dark bordered frame with a small section-title label at the top."""
+    """Return a dark bordered frame with a section-title label at the top."""
     frame = ctk.CTkFrame(
         parent,
         fg_color=BG_SECT,
-        border_width=1,
+        border_width=2,
         border_color=BORDER,
-        corner_radius=6,
+        corner_radius=10,
         **kw,
     )
     ctk.CTkLabel(
         frame,
         text=title.upper(),
         text_color=TEXT_DIM,
-        font=("", 10),
+        font=("Segoe UI", 12, "bold"),
         anchor="w",
-    ).grid(row=0, column=0, columnspan=10, padx=8, pady=(4, 0), sticky="w")
+    ).grid(row=0, column=0, columnspan=10, padx=12, pady=(8, 0), sticky="w")
     return frame
+
+
+# ---------------------------------------------------------------------------
+# Tooltip helper
+# ---------------------------------------------------------------------------
+
+class ToolTip:
+    """Show a small floating tooltip when hovering over a widget."""
+
+    def __init__(self, widget, text: str):
+        self.widget = widget
+        self.text = text
+        self.tooltip_window = None
+        widget.bind("<Enter>", self.show)
+        widget.bind("<Leave>", self.hide)
+
+    def show(self, event=None):
+        bbox = self.widget.bbox("insert") if hasattr(self.widget, "bbox") and self.widget.bbox("insert") else None
+        x = self.widget.winfo_rootx() + 60
+        y = self.widget.winfo_rooty() + 10
+        self.tooltip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            tw, text=self.text, background="#2a3f6f", foreground="#e0e0e0",
+            relief="solid", borderwidth=1, font=("Segoe UI", 10),
+        )
+        label.pack()
+
+    def hide(self, event=None):
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +165,7 @@ class DashboardPage(ctk.CTkFrame):
         status_sec.columnconfigure(0, weight=1)
 
         self.status_label = ctk.CTkLabel(
-            status_sec, text="IDLE", font=("", 26, "bold"), text_color=TEXT_DIM
+            status_sec, text="IDLE", font=("Segoe UI", 28, "bold"), text_color=TEXT_DIM
         )
         self.status_label.grid(row=1, column=0, pady=(4, 10))
 
@@ -134,13 +174,13 @@ class DashboardPage(ctk.CTkFrame):
         loot_sec.grid(row=1, column=0, padx=16, pady=6, sticky="ew")
         loot_sec.columnconfigure((0, 1, 2), weight=1)
 
-        self.gold_label = ctk.CTkLabel(loot_sec, text="💰 Gold\n—", font=("", 13), text_color=TEXT)
+        self.gold_label = ctk.CTkLabel(loot_sec, text="💰 Gold\n—", font=("Segoe UI", 14, "bold"), text_color="#FFD700")
         self.gold_label.grid(row=1, column=0, padx=12, pady=(4, 12))
 
-        self.elixir_label = ctk.CTkLabel(loot_sec, text="💧 Elixir\n—", font=("", 13), text_color=TEXT)
+        self.elixir_label = ctk.CTkLabel(loot_sec, text="💧 Elixir\n—", font=("Segoe UI", 14, "bold"), text_color="#DE3AFF")
         self.elixir_label.grid(row=1, column=1, padx=12, pady=(4, 12))
 
-        self.dark_label = ctk.CTkLabel(loot_sec, text="⚫ Dark\n—", font=("", 13), text_color=TEXT)
+        self.dark_label = ctk.CTkLabel(loot_sec, text="⚫ Dark\n—", font=("Segoe UI", 14, "bold"), text_color="#9090c8")
         self.dark_label.grid(row=1, column=2, padx=12, pady=(4, 12))
 
         # Stats section
@@ -148,16 +188,16 @@ class DashboardPage(ctk.CTkFrame):
         stats_sec.grid(row=2, column=0, padx=16, pady=6, sticky="ew")
         stats_sec.columnconfigure((0, 1), weight=1)
 
-        self.attacks_label = ctk.CTkLabel(stats_sec, text="Attacks: 0  |  Success: 0%", font=("", 12), text_color=TEXT)
+        self.attacks_label = ctk.CTkLabel(stats_sec, text="Attacks: 0  |  Success: 0%", font=("Segoe UI", 13, "bold"), text_color=TEXT)
         self.attacks_label.grid(row=1, column=0, columnspan=2, padx=8, pady=(4, 2))
 
-        self.rate_label = ctk.CTkLabel(stats_sec, text="Attacks/hour: 0", font=("", 12), text_color=TEXT)
+        self.rate_label = ctk.CTkLabel(stats_sec, text="Attacks/hour: 0", font=("Segoe UI", 12), text_color=TEXT)
         self.rate_label.grid(row=2, column=0, padx=8, pady=2, sticky="w")
 
-        self.runtime_label = ctk.CTkLabel(stats_sec, text="Runtime: 0h 0m", font=("", 12), text_color=TEXT)
+        self.runtime_label = ctk.CTkLabel(stats_sec, text="Runtime: 0h 0m", font=("Segoe UI", 12), text_color=TEXT)
         self.runtime_label.grid(row=2, column=1, padx=8, pady=2, sticky="e")
 
-        self.last_attack_label = ctk.CTkLabel(stats_sec, text="Last attack: —", font=("", 12), text_color=TEXT_DIM)
+        self.last_attack_label = ctk.CTkLabel(stats_sec, text="Last attack: —", font=("Segoe UI", 11), text_color=TEXT_DIM)
         self.last_attack_label.grid(row=3, column=0, columnspan=2, padx=8, pady=(2, 10))
 
     def on_show(self):
@@ -227,14 +267,15 @@ class AutoAttackPage(ctk.CTkFrame):
         sess_sec.grid(row=0, column=0, columnspan=2, padx=12, pady=(10, 4), sticky="ew")
         sess_sec.columnconfigure(0, weight=1)
 
-        self.sessions_frame = ctk.CTkScrollableFrame(sess_sec, fg_color=BG_SECT, height=120)
+        self.sessions_frame = ctk.CTkScrollableFrame(sess_sec, fg_color=BG_INPUT, height=120)
         self.sessions_frame.grid(row=1, column=0, padx=4, pady=4, sticky="ew")
 
         ctk.CTkButton(
             sess_sec, text="↺ Refresh", command=self._refresh_sessions,
-            width=100, height=28, fg_color=BTN_FG, hover_color=BG_HOVER,
-            text_color=TEXT, font=("", 11),
-        ).grid(row=2, column=0, pady=(2, 6))
+            width=100, height=32, corner_radius=8,
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H,
+            text_color=TEXT, font=("Segoe UI", 11),
+        ).grid(row=2, column=0, pady=(2, 8))
 
         # --- Loot requirements ---
         loot_sec = _make_section(self, "Loot Requirements")
@@ -250,8 +291,9 @@ class AutoAttackPage(ctk.CTkFrame):
                 row=1, column=col * 2, padx=(8, 2), pady=6, sticky="e"
             )
             entry = ctk.CTkEntry(
-                loot_sec, placeholder_text="0", width=90, height=28,
-                fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT,
+                loot_sec, placeholder_text="0", width=90, height=32,
+                fg_color=BG_INPUT, border_color=BORDER, text_color=TEXT,
+                corner_radius=6,
             )
             entry.grid(row=1, column=col * 2 + 1, padx=(2, 8), pady=6)
             setattr(self, attr, entry)
@@ -266,7 +308,7 @@ class AutoAttackPage(ctk.CTkFrame):
         )
         self.th_dropdown = ctk.CTkOptionMenu(
             opt_sec, values=[str(i) for i in range(1, 17)],
-            width=70, height=28, fg_color=BTN_FG, button_color=BG_HOVER,
+            width=70, height=32, fg_color=BG_INPUT, button_color=BG_HOVER,
             dropdown_fg_color=BG_SECT, text_color=TEXT,
         )
         self.th_dropdown.set("16")
@@ -285,16 +327,17 @@ class AutoAttackPage(ctk.CTkFrame):
             row=2, column=0, padx=8, pady=6, sticky="e"
         )
         self.api_key_entry = ctk.CTkEntry(
-            opt_sec, placeholder_text="API key", show="*", width=220, height=28,
-            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT,
+            opt_sec, placeholder_text="API key", show="*", width=220, height=32,
+            fg_color=BG_INPUT, border_color=BORDER, text_color=TEXT, corner_radius=6,
         )
         self.api_key_entry.grid(row=2, column=1, columnspan=3, padx=8, pady=6, sticky="w")
 
         # --- Troop bar calibration ---
         ctk.CTkButton(
             self, text="🎯 Calibrate Troop Bar", command=self._calibrate_troop_bar,
-            fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, height=30,
-        ).grid(row=3, column=0, columnspan=2, pady=6)
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT,
+            height=34, corner_radius=8, font=("Segoe UI", 11),
+        ).grid(row=3, column=0, columnspan=2, pady=8)
 
         # --- Start / Stop ---
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -303,15 +346,15 @@ class AutoAttackPage(ctk.CTkFrame):
         self.start_btn = ctk.CTkButton(
             btn_frame, text="▶ Start Auto Attack",
             fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
-            width=180, height=34, font=("", 12, "bold"),
+            width=200, height=40, corner_radius=8, font=("Segoe UI", 13, "bold"),
             command=self._start_attack,
         )
         self.start_btn.grid(row=0, column=0, padx=10)
 
         self.stop_btn = ctk.CTkButton(
             btn_frame, text="⏹ Stop",
-            fg_color="#8B0000", hover_color="#5c0000", text_color=TEXT,
-            width=100, height=34, font=("", 12, "bold"),
+            fg_color=BTN_DANGER, hover_color=BTN_DANGER_H, text_color=TEXT,
+            width=110, height=40, corner_radius=8, font=("Segoe UI", 13, "bold"),
             command=self._stop_attack, state="disabled",
         )
         self.stop_btn.grid(row=0, column=1, padx=10)
@@ -368,7 +411,8 @@ class AutoAttackPage(ctk.CTkFrame):
             justify="left", text_color=TEXT,
         ).pack(padx=20, pady=20)
         ctk.CTkButton(win, text="Close", command=win.destroy,
-                      fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT).pack(pady=8)
+                      fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT,
+                      corner_radius=8).pack(pady=8)
 
     def _start_attack(self):
         selected = [name for name, var in self._session_vars.items() if var.get()]
@@ -443,8 +487,8 @@ class RecordingPage(ctk.CTkFrame):
             row=1, column=0, padx=8, pady=6, sticky="e"
         )
         self.name_entry = ctk.CTkEntry(
-            ctrl_sec, placeholder_text="e.g. goblin_barch", width=220, height=28,
-            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT,
+            ctrl_sec, placeholder_text="e.g. goblin_barch", width=220, height=32,
+            fg_color=BG_INPUT, border_color=BORDER, text_color=TEXT, corner_radius=6,
         )
         self.name_entry.grid(row=1, column=1, padx=8, pady=6, sticky="w")
 
@@ -460,8 +504,8 @@ class RecordingPage(ctk.CTkFrame):
 
         self.record_btn = ctk.CTkButton(
             ctrl_sec, text="⏺ Start Recording",
-            fg_color="#8B0000", hover_color="#5c0000", text_color=TEXT,
-            width=180, height=32, font=("", 12, "bold"),
+            fg_color=BTN_DANGER, hover_color=BTN_DANGER_H, text_color=TEXT,
+            width=180, height=36, corner_radius=8, font=("Segoe UI", 12, "bold"),
             command=self._toggle_recording,
         )
         self.record_btn.grid(row=3, column=0, columnspan=2, pady=(4, 8))
@@ -474,13 +518,14 @@ class RecordingPage(ctk.CTkFrame):
         list_sec.grid(row=1, column=0, padx=12, pady=4, sticky="ew")
         list_sec.columnconfigure(0, weight=1)
 
-        self.list_frame = ctk.CTkScrollableFrame(list_sec, fg_color=BG_SECT, height=220)
+        self.list_frame = ctk.CTkScrollableFrame(list_sec, fg_color=BG_INPUT, height=220)
         self.list_frame.grid(row=1, column=0, padx=4, pady=4, sticky="ew")
 
         ctk.CTkButton(
             list_sec, text="↺ Refresh", command=self._refresh_recordings,
-            width=90, height=28, fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, font=("", 11),
-        ).grid(row=2, column=0, pady=(2, 6))
+            width=90, height=32, corner_radius=8,
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT, font=("Segoe UI", 11),
+        ).grid(row=2, column=0, pady=(2, 8))
 
     def _toggle_recording(self):
         if not self.bot.is_recording:
@@ -490,12 +535,12 @@ class RecordingPage(ctk.CTkFrame):
                 return
             self.bot.start_attack_recording(name)
             self._recording_start = time.time()
-            self.record_btn.configure(text="⏹ Stop Recording", fg_color="#555555")
+            self.record_btn.configure(text="⏹ Stop Recording", fg_color=BTN_SECONDARY)
             self._update_rec_status()
         else:
             self.bot.stop_attack_recording()
             self._recording_start = None
-            self.record_btn.configure(text="⏺ Start Recording", fg_color="#8B0000")
+            self.record_btn.configure(text="⏺ Start Recording", fg_color=BTN_DANGER)
             self.rec_status.configure(text="")
             self._refresh_recordings()
 
@@ -564,14 +609,15 @@ class PlaybackPage(ctk.CTkFrame):
             row=1, column=0, padx=8, pady=6, sticky="e"
         )
         self.session_menu = ctk.CTkOptionMenu(
-            sel_sec, values=["(none)"], width=220, height=28,
-            fg_color=BTN_FG, button_color=BG_HOVER,
+            sel_sec, values=["(none)"], width=220, height=32,
+            fg_color=BG_INPUT, button_color=BG_HOVER,
             dropdown_fg_color=BG_SECT, text_color=TEXT,
         )
         self.session_menu.grid(row=1, column=1, padx=8, pady=6, sticky="w")
         ctk.CTkButton(
-            sel_sec, text="↺", width=28, height=28, command=self._refresh_sessions,
-            fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, font=("", 12),
+            sel_sec, text="↺", width=32, height=32, command=self._refresh_sessions,
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT,
+            corner_radius=8, font=("Segoe UI", 12),
         ).grid(row=1, column=2, padx=4, pady=6)
 
         # --- Speed control ---
@@ -611,15 +657,15 @@ class PlaybackPage(ctk.CTkFrame):
         self.play_btn = ctk.CTkButton(
             btn_frame, text="▶ Play",
             fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
-            width=120, height=34, font=("", 12, "bold"),
+            width=130, height=38, corner_radius=8, font=("Segoe UI", 12, "bold"),
             command=self._play,
         )
         self.play_btn.grid(row=0, column=0, padx=8)
 
         self.stop_pb_btn = ctk.CTkButton(
             btn_frame, text="⏹ Stop",
-            fg_color="#8B0000", hover_color="#5c0000", text_color=TEXT,
-            width=80, height=34, font=("", 12, "bold"),
+            fg_color=BTN_DANGER, hover_color=BTN_DANGER_H, text_color=TEXT,
+            width=90, height=38, corner_radius=8, font=("Segoe UI", 12, "bold"),
             command=self._stop_playback, state="disabled",
         )
         self.stop_pb_btn.grid(row=0, column=1, padx=8)
@@ -698,21 +744,23 @@ class CoordinatesPage(ctk.CTkFrame):
         ]):
             ctk.CTkButton(
                 act_sec, text=text, command=cmd,
-                height=30, fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, font=("", 11),
-            ).grid(row=1, column=col, padx=6, pady=(4, 8))
+                height=34, corner_radius=8,
+                fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT, font=("Segoe UI", 11),
+            ).grid(row=1, column=col, padx=6, pady=(4, 10))
 
         # --- Coordinates list ---
         list_sec = _make_section(self, "Mapped Coordinates")
         list_sec.grid(row=1, column=0, padx=12, pady=4, sticky="ew")
         list_sec.columnconfigure(0, weight=1)
 
-        self.coords_frame = ctk.CTkScrollableFrame(list_sec, fg_color=BG_SECT, height=300)
+        self.coords_frame = ctk.CTkScrollableFrame(list_sec, fg_color=BG_INPUT, height=300)
         self.coords_frame.grid(row=1, column=0, padx=4, pady=4, sticky="ew")
 
         ctk.CTkButton(
             list_sec, text="↺ Refresh", command=self._refresh_coords,
-            width=90, height=28, fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, font=("", 11),
-        ).grid(row=2, column=0, pady=(2, 6))
+            width=90, height=32, corner_radius=8,
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT, font=("Segoe UI", 11),
+        ).grid(row=2, column=0, pady=(2, 8))
 
     def _refresh_coords(self):
         for widget in self.coords_frame.winfo_children():
@@ -793,6 +841,7 @@ class CoordinatesPage(ctk.CTkFrame):
         ctk.CTkButton(
             win, text="Start", command=run,
             fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+            corner_radius=8,
         ).pack(pady=8)
 
     def _calibrate(self):
@@ -812,7 +861,8 @@ class CoordinatesPage(ctk.CTkFrame):
         ).pack(padx=20, pady=20)
         ctk.CTkButton(
             win, text="Close", command=win.destroy,
-            fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT,
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT,
+            corner_radius=8,
         ).pack(pady=8)
 
     def _export(self):
@@ -893,8 +943,8 @@ class SettingsPage(ctk.CTkFrame):
             row=6, column=0, padx=8, pady=4, sticky="e"
         )
         self.cd_min_entry = ctk.CTkEntry(
-            ab_frame, width=70, height=26,
-            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT,
+            ab_frame, width=70, height=32,
+            fg_color=BG_INPUT, border_color=BORDER, text_color=TEXT, corner_radius=6,
         )
         self.cd_min_entry.grid(row=6, column=1, padx=8, pady=4, sticky="w")
 
@@ -902,8 +952,8 @@ class SettingsPage(ctk.CTkFrame):
             row=7, column=0, padx=8, pady=4, sticky="e"
         )
         self.cd_max_entry = ctk.CTkEntry(
-            ab_frame, width=70, height=26,
-            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT,
+            ab_frame, width=70, height=32,
+            fg_color=BG_INPUT, border_color=BORDER, text_color=TEXT, corner_radius=6,
         )
         self.cd_max_entry.grid(row=7, column=1, padx=8, pady=(4, 2), sticky="w")
 
@@ -911,8 +961,8 @@ class SettingsPage(ctk.CTkFrame):
             row=8, column=0, padx=8, pady=4, sticky="e"
         )
         self.max_aph_entry = ctk.CTkEntry(
-            ab_frame, width=70, height=26,
-            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT,
+            ab_frame, width=70, height=32,
+            fg_color=BG_INPUT, border_color=BORDER, text_color=TEXT, corner_radius=6,
         )
         self.max_aph_entry.grid(row=8, column=1, padx=8, pady=4, sticky="w")
 
@@ -920,8 +970,8 @@ class SettingsPage(ctk.CTkFrame):
             row=9, column=0, padx=8, pady=(4, 8), sticky="e"
         )
         self.break_n_entry = ctk.CTkEntry(
-            ab_frame, width=70, height=26,
-            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT,
+            ab_frame, width=70, height=32,
+            fg_color=BG_INPUT, border_color=BORDER, text_color=TEXT, corner_radius=6,
         )
         self.break_n_entry.grid(row=9, column=1, padx=8, pady=(4, 8), sticky="w")
 
@@ -934,8 +984,8 @@ class SettingsPage(ctk.CTkFrame):
             row=1, column=0, padx=8, pady=4, sticky="e"
         )
         self.settings_api_key_entry = ctk.CTkEntry(
-            ai_frame, placeholder_text="Gemini API key", show="*", width=180, height=26,
-            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT,
+            ai_frame, placeholder_text="Gemini API key", show="*", width=180, height=32,
+            fg_color=BG_INPUT, border_color=BORDER, text_color=TEXT, corner_radius=6,
         )
         self.settings_api_key_entry.grid(row=1, column=1, padx=8, pady=4, sticky="ew")
 
@@ -943,15 +993,16 @@ class SettingsPage(ctk.CTkFrame):
             row=2, column=0, padx=8, pady=4, sticky="e"
         )
         self.model_entry = ctk.CTkEntry(
-            ai_frame, width=180, height=26,
-            fg_color=BG_MAIN, border_color=BORDER, text_color=TEXT,
+            ai_frame, width=180, height=32,
+            fg_color=BG_INPUT, border_color=BORDER, text_color=TEXT, corner_radius=6,
         )
         self.model_entry.grid(row=2, column=1, padx=8, pady=4, sticky="ew")
 
         ctk.CTkButton(
             ai_frame, text="Test Connection", command=self._test_ai,
-            height=28, fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, font=("", 11),
-        ).grid(row=3, column=0, columnspan=2, padx=8, pady=6)
+            height=32, corner_radius=8,
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT, font=("Segoe UI", 11),
+        ).grid(row=3, column=0, columnspan=2, padx=8, pady=8)
 
         # --- Dashboard settings (right column, row 1) ---
         dash_frame = _make_section(self, "Dashboard")
@@ -987,7 +1038,7 @@ class SettingsPage(ctk.CTkFrame):
         self.theme_menu = ctk.CTkOptionMenu(
             theme_frame, values=["Dark", "Light", "System"],
             command=lambda v: ctk.set_appearance_mode(v),
-            width=120, height=28, fg_color=BTN_FG, button_color=BG_HOVER,
+            width=120, height=32, fg_color=BG_INPUT, button_color=BG_HOVER,
             dropdown_fg_color=BG_SECT, text_color=TEXT,
         )
         self.theme_menu.grid(row=1, column=1, padx=8, pady=(4, 8), sticky="w")
@@ -996,8 +1047,8 @@ class SettingsPage(ctk.CTkFrame):
         ctk.CTkButton(
             self, text="💾 Save Settings", command=self._save_settings,
             fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
-            height=32, font=("", 12, "bold"),
-        ).grid(row=2, column=0, columnspan=2, pady=12)
+            height=36, corner_radius=8, font=("Segoe UI", 12, "bold"),
+        ).grid(row=2, column=0, columnspan=2, pady=14)
 
     def _load_settings(self):
         cfg = self.bot.config
@@ -1105,9 +1156,14 @@ class BotGUI:
         self.root.rowconfigure(0, weight=1)
 
         # Sidebar - narrow icon-only strip (column 0)
-        self.sidebar = ctk.CTkFrame(self.root, width=56, corner_radius=0, fg_color=BG_MAIN)
+        self.sidebar = ctk.CTkFrame(self.root, width=64, corner_radius=0, fg_color=BG_SIDEBAR)
         self.sidebar.grid(row=0, column=0, rowspan=2, sticky="nsw")
         self.sidebar.grid_propagate(False)
+
+        # Sidebar right border separator (1px line)
+        ctk.CTkFrame(self.root, width=1, corner_radius=0, fg_color=BORDER).grid(
+            row=0, column=0, rowspan=2, sticky="nse"
+        )
 
         # Main content + log panel (column 1)
         right_frame = ctk.CTkFrame(self.root, fg_color=BG_MAIN)
@@ -1123,8 +1179,13 @@ class BotGUI:
         self.content_frame.rowconfigure(0, weight=1)
 
         # Log panel (fixed height at bottom)
-        self.log_frame = ctk.CTkFrame(right_frame, height=150, corner_radius=0, fg_color=BG_SECT)
+        self.log_frame = ctk.CTkFrame(right_frame, height=150, corner_radius=0,
+                                       fg_color=BG_SECT, border_width=0)
         self.log_frame.grid(row=1, column=0, sticky="ew")
+        # Top separator line for log panel
+        ctk.CTkFrame(right_frame, height=2, corner_radius=0, fg_color=BORDER).grid(
+            row=1, column=0, sticky="new"
+        )
         self.log_frame.grid_propagate(False)
         self.log_frame.columnconfigure(0, weight=1)
         self.log_frame.rowconfigure(1, weight=1)
@@ -1132,24 +1193,32 @@ class BotGUI:
 
     def _build_sidebar(self):
         """Populate the sidebar with icon-only navigation buttons."""
-        ctk.CTkFrame(self.sidebar, height=12, fg_color="transparent").pack()
+        # App title / logo area
+        title_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        title_frame.pack(fill="x", pady=(10, 4))
+        ctk.CTkLabel(
+            title_frame, text="⚔", font=("Segoe UI", 20), text_color=ACCENT,
+        ).pack()
+
+        ctk.CTkFrame(self.sidebar, height=1, fg_color=BORDER).pack(fill="x", padx=6, pady=4)
 
         self._nav_buttons = {}
-        for icon, _label, key in self.PAGES:
+        for icon, label, key in self.PAGES:
             btn = ctk.CTkButton(
                 self.sidebar,
                 text=icon,
-                width=44,
-                height=44,
-                corner_radius=8,
+                width=48,
+                height=48,
+                corner_radius=10,
                 fg_color="transparent",
                 text_color=TEXT_DIM,
                 hover_color=BG_HOVER,
-                font=("", 18),
+                font=("Segoe UI", 20),
                 command=lambda k=key: self.show_page(k),
             )
-            btn.pack(pady=4, padx=4)
+            btn.pack(pady=5, padx=6)
             self._nav_buttons[key] = btn
+            ToolTip(btn, label)
 
     def _build_pages(self):
         """Instantiate all page frames inside the content area."""
@@ -1173,7 +1242,7 @@ class BotGUI:
         header.grid(row=0, column=0, sticky="ew", padx=8, pady=(4, 0))
         header.columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(header, text="LOG", font=("", 11, "bold"), text_color=TEXT_DIM).grid(
+        ctk.CTkLabel(header, text="LOG", font=("Segoe UI", 11, "bold"), text_color=TEXT_DIM).grid(
             row=0, column=0, padx=6
         )
 
@@ -1181,33 +1250,36 @@ class BotGUI:
             header,
             values=["All", "Info", "Warning", "Error"],
             command=self._on_log_filter,
-            width=260,
+            width=280,
             fg_color=BG_MAIN,
             selected_color=ACCENT,
             selected_hover_color=ACCENT_H,
-            unselected_color=BG_MAIN,
-            unselected_hover_color=BG_HOVER,
-            text_color=TEXT_DIM,
+            unselected_color=BTN_SECONDARY,
+            unselected_hover_color=BTN_SECONDARY_H,
+            text_color=TEXT,
             text_color_disabled=TEXT_DIM,
         )
         self.log_filter.set("All")
         self.log_filter.grid(row=0, column=1, padx=8)
 
         ctk.CTkButton(
-            header, text="🖥 Debug Console", width=130, height=26,
-            fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, font=("", 11),
+            header, text="🖥 Debug Console", width=130, height=28,
+            corner_radius=8,
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT, font=("Segoe UI", 11),
             command=self._open_debug_console,
         ).grid(row=0, column=2, padx=4)
 
         ctk.CTkButton(
-            header, text="🗑 Clear", width=70, height=26,
-            fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, font=("", 11),
+            header, text="🗑 Clear", width=70, height=28,
+            corner_radius=8,
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT, font=("Segoe UI", 11),
             command=self._clear_log,
         ).grid(row=0, column=3, padx=4)
 
         self._log_toggle_btn = ctk.CTkButton(
-            header, text="▲", width=36, height=26,
-            fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, font=("", 11),
+            header, text="▲", width=36, height=28,
+            corner_radius=8,
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT, font=("Segoe UI", 11),
             command=self._toggle_log_panel,
         )
         self._log_toggle_btn.grid(row=0, column=4, padx=(4, 2))
@@ -1295,7 +1367,8 @@ class BotGUI:
         _load()
         ctk.CTkButton(
             win, text="↺ Refresh", command=_load,
-            fg_color=BTN_FG, hover_color=BG_HOVER, text_color=TEXT, height=28,
+            fg_color=BTN_SECONDARY, hover_color=BTN_SECONDARY_H, text_color=TEXT,
+            height=32, corner_radius=8,
         ).pack(pady=4)
 
     # ------------------------------------------------------------------
@@ -1307,9 +1380,9 @@ class BotGUI:
         self.pages[page_name].tkraise()
         for key, btn in self._nav_buttons.items():
             if key == page_name:
-                btn.configure(fg_color=ACCENT, text_color="#000000")
+                btn.configure(fg_color=ACCENT, text_color="#000000", font=("Segoe UI", 20, "bold"))
             else:
-                btn.configure(fg_color="transparent", text_color=TEXT_DIM)
+                btn.configure(fg_color="transparent", text_color=TEXT_DIM, font=("Segoe UI", 20))
         page = self.pages[page_name]
         if hasattr(page, "on_show"):
             page.on_show()

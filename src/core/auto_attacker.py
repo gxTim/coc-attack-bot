@@ -357,11 +357,11 @@ class AutoAttacker:
             battle_end_reason = self._wait_for_battle_end()
 
             # Step 9: Return home.
-            # Template detection confirms the Return Home button is visible →
+            # Template/stars detection confirms the battle screen is visible →
             # click it normally (up to 3 attempts).  Pixel heuristic and timeout
             # are ambiguous about whether we are already home, so only try once
             # to avoid wasting time clicking an empty area.
-            if battle_end_reason == "template":
+            if battle_end_reason in ("template", "stars"):
                 self._return_home()
             else:
                 self._return_home(max_attempts=1)
@@ -378,8 +378,9 @@ class AutoAttacker:
         Detection priority:
         1. ``templates/battle_end.png`` – template match on screen.
         2. ``templates/return_home.png`` – template match on screen.
-        3. ``return_home`` coordinate – pixel-colour change heuristic.
-        4. Fixed timeout (configurable via ``auto_attacker.battle_timeout``).
+        3. Star overlay detection (via BattleEndDetector when available).
+        4. ``return_home`` coordinate – pixel-colour change heuristic.
+        5. Fixed timeout (configurable via ``auto_attacker.battle_timeout``).
 
         The method also waits for the playback thread to finish first so that
         troop deployment is complete before we start polling (fixes race
@@ -388,6 +389,7 @@ class AutoAttacker:
         Returns:
             A string describing how battle-end was detected:
             * ``"template"``    – a battle-end or return-home template matched.
+            * ``"stars"``       – the gold-star overlay was detected by BattleEndDetector.
             * ``"pixel_change"``– the pixel-colour heuristic fired after the
               minimum elapsed time requirement was satisfied.
             * ``"timeout"``     – the battle timeout was reached without a
@@ -445,7 +447,7 @@ class AutoAttacker:
                         self.logger.info(
                             f"🏁 Battle ended after ~{elapsed}s (star overlay detected)"
                         )
-                        return "template"
+                        return "stars"
                 else:
                     for path, name in templates:
                         match = self.screen_capture.find_template_on_screen(

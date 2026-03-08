@@ -125,16 +125,14 @@ class LootReader:
 
     def _detect_engine(self) -> Optional[str]:
         """Try to import available OCR engines; return the name of the first
-        one that loads successfully."""
+        one that loads successfully.  easyocr initialisation is deferred to
+        first use to avoid startup delay."""
         try:
-            import easyocr  # type: ignore
-            self._easyocr_reader = easyocr.Reader(["en"], gpu=False, verbose=False)
-            self._log("OCR engine: easyocr")
+            import easyocr  # type: ignore  # noqa: F401 — just check availability
+            self._log("OCR engine: easyocr (model will load on first use)")
             return "easyocr"
         except ImportError:
             pass
-        except Exception as exc:
-            self._log(f"easyocr available but failed to init: {exc}", "warning")
 
         try:
             import pytesseract  # type: ignore
@@ -151,6 +149,14 @@ class LootReader:
             "warning",
         )
         return None
+
+    def _get_easyocr_reader(self):
+        """Return the easyocr Reader, initialising it lazily on first use."""
+        if self._easyocr_reader is None:
+            import easyocr  # type: ignore
+            self._log("Initialising easyocr model (one-time, may take a few seconds)…")
+            self._easyocr_reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+        return self._easyocr_reader
 
     def _preprocess_for_ocr(self, img):
         """Convert to grayscale, apply adaptive threshold, and scale up 2×.
@@ -183,8 +189,9 @@ class LootReader:
         """Run the active OCR engine on a preprocessed PIL Image."""
         import numpy as np
 
-        if self._engine == "easyocr" and self._easyocr_reader is not None:
-            detections = self._easyocr_reader.readtext(
+        if self._engine == "easyocr":
+            reader = self._get_easyocr_reader()
+            detections = reader.readtext(
                 np.array(img), detail=0, paragraph=True
             )
             return " ".join(detections)

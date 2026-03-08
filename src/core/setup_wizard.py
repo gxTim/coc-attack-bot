@@ -6,6 +6,7 @@ import time
 from typing import Callable, List, Optional, Tuple
 
 import keyboard
+import pyautogui
 
 from .auto_detector import AutoDetector
 from .coordinate_mapper import CoordinateMapper
@@ -161,8 +162,6 @@ class SetupWizard:
         Returns:
             ``(x, y)`` if F2 was pressed, ``None`` if ESC was pressed.
         """
-        import pyautogui
-
         while True:
             if keyboard.is_pressed("f2"):
                 x, y = pyautogui.position()

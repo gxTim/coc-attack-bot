@@ -203,6 +203,29 @@ class ScreenCapture:
         self._log(f"Template saved: {filepath}")
         return filepath
 
+    def _capture_raw(
+        self,
+        region: Optional[Tuple[int, int, int, int]] = None,
+    ):
+        """Capture the screen (or a region) and return a PIL Image *without*
+        saving to disk.
+
+        If *region* is not supplied the game window bounds are used when
+        available, otherwise the full screen is captured.
+
+        Returns:
+            A ``PIL.Image`` instance, or ``None`` on failure.
+        """
+        try:
+            if region:
+                return pyautogui.screenshot(region=region)
+            if self.game_window_bounds:
+                return pyautogui.screenshot(region=self.game_window_bounds)
+            return pyautogui.screenshot()
+        except Exception as exc:
+            self._log(f"_capture_raw failed: {exc}", "error")
+            return None
+
     def cleanup_screenshots(self, max_age_hours: float = 24) -> None:
         """Delete screenshot files older than *max_age_hours* from the screenshots directory."""
         if not os.path.isdir(self.screenshot_dir):

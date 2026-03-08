@@ -49,13 +49,18 @@ class AutoAttacker:
     """Automated continuous attack system"""
     
     def __init__(self, attack_player: AttackPlayer, screen_capture: ScreenCapture, 
-                 coordinate_mapper: CoordinateMapper, logger: Logger, ai_analyzer: AIAnalyzer, config: Config):
+                 coordinate_mapper: CoordinateMapper, logger: Logger, ai_analyzer: AIAnalyzer, config: Config,
+                 loot_reader=None, battle_detector=None):
         self.attack_player = attack_player
         self.screen_capture = screen_capture
         self.coordinate_mapper = coordinate_mapper
         self.logger = logger
         self.ai_analyzer = ai_analyzer
         self.config = config
+        # Optional local OCR loot reader (LootReader instance or None)
+        self._loot_reader = loot_reader
+        # Optional multi-method battle-end detector (BattleEndDetector instance or None)
+        self._battle_detector = battle_detector
         
         self.is_running = False
         self.auto_thread = None
@@ -423,16 +428,34 @@ class AutoAttacker:
                     )
                     return "template"
             elapsed = 0
+            star_region = self.config.get('auto_attacker.star_region', None)
             while elapsed < battle_timeout and self.is_running:
-                for path, name in templates:
-                    match = self.screen_capture.find_template_on_screen(
-                        path, threshold=0.8
+                # Use BattleEndDetector (template + star overlay) when available
+                if self._battle_detector is not None:
+                    reason = self._battle_detector.check_battle_end(
+                        templates=templates,
+                        star_region=star_region,
                     )
-                    if match:
+                    if reason == "template":
                         self.logger.info(
-                            f"🏁 Battle ended after ~{elapsed}s ({name} detected)"
+                            f"🏁 Battle ended after ~{elapsed}s (template detected)"
                         )
                         return "template"
+                    if reason == "stars":
+                        self.logger.info(
+                            f"🏁 Battle ended after ~{elapsed}s (star overlay detected)"
+                        )
+                        return "template"
+                else:
+                    for path, name in templates:
+                        match = self.screen_capture.find_template_on_screen(
+                            path, threshold=0.8
+                        )
+                        if match:
+                            self.logger.info(
+                                f"🏁 Battle ended after ~{elapsed}s ({name} detected)"
+                            )
+                            return "template"
                 remaining = battle_timeout - elapsed
                 self.logger.info(
                     f"⏳ Battle in progress... ~{remaining // 60}m {remaining % 60}s remaining"
@@ -672,21 +695,59 @@ class AutoAttacker:
         return attack
 
     def _check_loot(self) -> bool:
-        """Check if enemy base has good loot.
+        """Check if enemy base has good loot using local OCR.
 
-        Simple OCR-based loot reading is not yet implemented.  This method
-        logs a warning and returns ``False`` so that the bot skips the base
-        rather than blindly attacking every one it encounters.  Enable AI
-        analysis (``ai_analyzer.enabled = true`` in config) for automatic
-        loot detection.
+        Tries to read Gold, Elixir, and Dark Elixir values from the current
+        screenshot using :class:`LootReader`.  If the reader is unavailable
+        (no OCR engine installed) the method falls back to logging a warning
+        and returning ``False`` so the bot skips the base rather than blindly
+        attacking.
+
+        Returns:
+            ``True`` if all configured minimums are met, ``False`` otherwise.
         """
-        self.logger.warning(
-            "⚠️ Simple loot check: OCR is not implemented. "
-            "Returning False (SKIP) to avoid attacking every base. "
-            "Enable AI analysis via 'ai_analyzer.enabled' in config.json for "
-            "automatic loot detection."
+        if self._loot_reader is None or not self._loot_reader.is_available:
+            self.logger.warning(
+                "⚠️ Simple loot check: OCR is not implemented. "
+                "Returning False (SKIP) to avoid attacking every base. "
+                "Enable AI analysis via 'ai_analyzer.enabled' in config.json for "
+                "automatic loot detection."
+            )
+            return False
+
+        # Capture current screen and read loot values
+        screenshot_path = self.screen_capture.capture_game_screen()
+        if not screenshot_path:
+            self.logger.warning("⚠️ Could not capture screen for OCR loot check")
+            return False
+
+        game_bounds = self.screen_capture.game_window_bounds
+        region_overrides = self.config.get('auto_attacker.loot_regions', None)
+        loot = self._loot_reader.read_loot_from_screenshot(
+            screenshot_path,
+            game_bounds=game_bounds,
+            region_overrides=region_overrides,
         )
-        return False
+
+        min_gold = self.config.get('auto_attacker.min_gold', 0)
+        min_elixir = self.config.get('auto_attacker.min_elixir', 0)
+        min_dark = self.config.get('auto_attacker.min_dark_elixir', 0)
+
+        gold_ok = loot['gold'] >= min_gold
+        elixir_ok = loot['elixir'] >= min_elixir
+        dark_ok = loot['dark_elixir'] >= min_dark
+
+        self.logger.info(
+            f"🔍 OCR Loot: Gold={loot['gold']:,}, Elixir={loot['elixir']:,}, Dark={loot['dark_elixir']:,}"
+        )
+        self.logger.info(
+            f"📋 Minimums:  Gold={min_gold:,}, Elixir={min_elixir:,}, Dark={min_dark:,}"
+        )
+        self.logger.info(
+            f"✅/❌ Meets Requirements: Gold={gold_ok}, Elixir={elixir_ok}, Dark={dark_ok}"
+        )
+
+        return gold_ok and elixir_ok and dark_ok
     
     def _click_end_button_and_retry(self) -> None:
         """Click end button to abort the current search, then confirm the surrender dialog."""

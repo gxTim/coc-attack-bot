@@ -10,6 +10,11 @@ from .core.attack_recorder import AttackRecorder
 from .core.attack_player import AttackPlayer
 from .core.auto_attacker import AutoAttacker
 from .core.ai_analyzer import AIAnalyzer
+from .core.auto_detector import AutoDetector
+from .core.loot_reader import LootReader
+from .core.relative_coords import RelativeCoordinateMapper
+from .core.battle_detector import BattleEndDetector
+from .core.setup_wizard import SetupWizard
 from .utils.config import Config
 from .utils.logger import Logger
 
@@ -32,13 +37,32 @@ class BotController:
             logger=self.logger,
             model=self.config.get("ai_analyzer.model", "")
         )
+
+        # New helper components
+        self.auto_detector = AutoDetector(
+            screen_capture=self.screen_capture,
+            logger=self.logger,
+        )
+        self.loot_reader = LootReader(logger=self.logger)
+        self.relative_mapper = RelativeCoordinateMapper(
+            coordinate_mapper=self.coordinate_mapper,
+            screen_capture=self.screen_capture,
+            logger=self.logger,
+        )
+        self.battle_detector = BattleEndDetector(
+            screen_capture=self.screen_capture,
+            logger=self.logger,
+        )
+
         self.auto_attacker = AutoAttacker(
             attack_player=self.attack_player, 
             screen_capture=self.screen_capture, 
             coordinate_mapper=self.coordinate_mapper, 
             logger=self.logger,
             ai_analyzer=self.ai_analyzer,
-            config=self.config  # Pass the single config instance
+            config=self.config,
+            loot_reader=self.loot_reader,
+            battle_detector=self.battle_detector,
         )
         
         self._state_lock = threading.Lock()
@@ -146,6 +170,27 @@ class BotController:
         """Push an updated troop bar config dict to the recorder and player."""
         self.attack_recorder.set_troop_bar_config(cfg)
         self.attack_player.set_troop_bar_config(cfg)
+
+    def run_setup_wizard(
+        self,
+        progress_callback=None,
+    ) -> bool:
+        """Run the guided setup wizard to configure button coordinates.
+
+        Args:
+            progress_callback: Optional ``(step, total, message)`` callable for
+                               GUI progress updates.
+
+        Returns:
+            ``True`` if all critical buttons were mapped successfully.
+        """
+        wizard = SetupWizard(
+            screen_capture=self.screen_capture,
+            coordinate_mapper=self.coordinate_mapper,
+            auto_detector=self.auto_detector,
+            logger=self.logger,
+        )
+        return wizard.run(progress_callback=progress_callback)
 
     def detect_game_window(self) -> Optional[Tuple[int, int, int, int]]:
         """Detect and return COC game window bounds"""

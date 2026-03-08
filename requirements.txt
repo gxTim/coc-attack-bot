@@ -14,4 +14,9 @@ numpy>=1.24.0
 requests>=2.31.0
 
 # GUI (optional - falls back to console UI if not installed)
-customtkinter>=5.2.0 
+customtkinter>=5.2.0
+
+# Optional OCR engines for local loot reading (LootReader).
+# Install one or both for faster, cost-free loot detection without the Gemini API.
+# easyocr>=1.7.0
+# pytesseract>=0.3.10 

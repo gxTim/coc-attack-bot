@@ -51,6 +51,7 @@ class ConsoleUI:
         print("\n" + "=" * 40)
         print("           MAIN MENU")
         print("=" * 40)
+        print("0. Quick Setup Wizard")
         print("1. Coordinate Mapping")
         print("2. Attack Recording")
         print("3. Attack Playback")
@@ -64,7 +65,9 @@ class ConsoleUI:
     
     def handle_choice(self, choice: str) -> None:
         """Handle user menu choice"""
-        if choice == '1':
+        if choice == '0':
+            self._run_setup_wizard()
+        elif choice == '1':
             self.coordinate_mapping_menu()
         elif choice == '2':
             self.attack_recording_menu()
@@ -84,6 +87,22 @@ class ConsoleUI:
             self.running = False
         else:
             print("Invalid choice. Please try again.")
+
+    def _run_setup_wizard(self) -> None:
+        """Launch the guided Quick Setup Wizard."""
+        print("\n" + "=" * 40)
+        print("       QUICK SETUP WIZARD")
+        print("=" * 40)
+        print("This wizard will help you map all required buttons.")
+        print("Have the game open and ready before continuing.")
+        input("Press Enter to start...")
+        success = self.bot.run_setup_wizard()
+        if success:
+            print("\n✅ Setup complete! All critical buttons are mapped.")
+        else:
+            print("\n⚠️  Setup incomplete. Some critical buttons are missing.")
+            print("    You can complete them later via Coordinate Mapping (option 1).")
+        input("\nPress Enter to return to the main menu...")
     
     def auto_attack_menu(self) -> None:
         """Automated attack system menu"""
